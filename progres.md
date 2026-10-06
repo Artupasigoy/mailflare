@@ -147,5 +147,12 @@ Permintaan & implementasi:
 - Tes unit baru `src/lib/format.test.ts` (7 kasus).
 - Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **51/51**, `npm run build` sukses.
 
+### 2026-10-07 — Sesi 8 (perbaikan FOREIGN KEY hapus permanen)
+- **Gejala**: "Failed to soft delete user" (hapus permanen satuan di Sampah) & "Failed to process bulk request" (Kosongkan Sampah / hapus massal).
+- **Akar masalah**: D1 `PRAGMA foreign_keys=ON`; tabel `email_status_history → emails` dan `user_labels → users` tanpa `ON DELETE`. Kode lama menghapus `users`/`emails` tanpa membersihkan anak → `FOREIGN KEY constraint failed`. Direproduksi di remote D1 dengan baris uji (INSERT user+email+history, DELETE user → error; jalur diperbaiki → sukses). Baris uji dibersihkan.
+- **Perbaikan** (hapus anak dulu di semua jalur hapus permanen): `deleteUserPermanentlyInDb`, `deleteTrashedUsersInDb`, `deleteUsersInDb`, `deleteUserInDb`, `emptyTrashForUserInDb`, `purgeExpiredTrashInDb`, `purgeExpiredSoftDeletedUsersInDb` — urutan `email_status_history` → `emails` → `login_sessions` → `user_labels` → `users`.
+- **Tes regresi** baru di `users-trash.test.ts` (aktifkan `PRAGMA foreign_keys=ON`): hapus user ber-email+history+label, dan `emptyTrashForUserInDb`.
+- Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **53/53**, `npm run build` sukses.
+
 ### <tambahkan sesi berikutnya di sini>
 - …

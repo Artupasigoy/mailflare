@@ -1678,6 +1678,16 @@ export async function purgeExpiredTrashInDb(
   }
 
   const days = Math.min(Math.max(Number(retentionDays) || TRASH_RETENTION_DAYS, 1), 365);
+  // Hapus anak (email_status_history) dulu agar tidak melanggar FOREIGN KEY.
+  await db
+    .prepare(
+      `DELETE FROM email_status_history
+       WHERE email_id IN (
+         SELECT id FROM emails WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', ?)
+       )`
+    )
+    .bind(`-${days} days`)
+    .run();
   const result = await db
     .prepare(
       `DELETE FROM emails
@@ -1696,6 +1706,14 @@ export async function emptyTrashForUserInDb(db: D1Database | undefined, userId: 
     return 0;
   }
 
+  // Hapus anak (email_status_history) dulu agar tidak melanggar FOREIGN KEY.
+  await db
+    .prepare(
+      `DELETE FROM email_status_history
+       WHERE email_id IN (SELECT id FROM emails WHERE user_id = ? AND deleted_at IS NOT NULL)`
+    )
+    .bind(userId)
+    .run();
   const result = await db
     .prepare("DELETE FROM emails WHERE user_id = ? AND deleted_at IS NOT NULL")
     .bind(userId)
@@ -2175,6 +2193,8 @@ export async function deleteUserInDb(db: D1Database | undefined, userId: string)
     };
   }
 
+  // user_labels tidak dihitung dependensi (hanya relasi tag) — lepaskan lalu hapus user.
+  await db.prepare('DELETE FROM user_labels WHERE user_id = ?').bind(userId).run();
   await db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
   return { deleted: true };
 }
@@ -2508,8 +2528,17 @@ export async function deleteTrashedUsersInDb(
 
   if (deletable.length > 0) {
     const placeholders = deletable.map(() => '?').join(', ');
+    // Hapus anak dulu (email_status_history, user_labels) agar tidak melanggar FOREIGN KEY.
+    await db
+      .prepare(
+        `DELETE FROM email_status_history
+         WHERE email_id IN (SELECT id FROM emails WHERE user_id IN (${placeholders}))`
+      )
+      .bind(...deletable)
+      .run();
     await db.prepare(`DELETE FROM emails WHERE user_id IN (${placeholders})`).bind(...deletable).run();
     await db.prepare(`DELETE FROM login_sessions WHERE user_id IN (${placeholders})`).bind(...deletable).run();
+    await db.prepare(`DELETE FROM user_labels WHERE user_id IN (${placeholders})`).bind(...deletable).run();
     await db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).bind(...deletable).run();
   }
 
@@ -2566,6 +2595,8 @@ export async function deleteUsersInDb(
 
   if (deletable.length > 0) {
     const deletePlaceholders = deletable.map(() => '?').join(', ');
+    // Hapus relasi label dulu agar tidak melanggar FOREIGN KEY.
+    await db.prepare(`DELETE FROM user_labels WHERE user_id IN (${deletePlaceholders})`).bind(...deletable).run();
     await db.prepare(`DELETE FROM users WHERE id IN (${deletePlaceholders})`).bind(...deletable).run();
     deleted.push(...deletable);
   }
@@ -2660,8 +2691,14 @@ export async function deleteUserPermanentlyInDb(
   if (Number(row.is_owner) === 1) return { deleted: false, reason: 'protected_owner' };
   if (row.password_hash && !row.deleted_at) return { deleted: false, reason: 'not_in_trash' };
 
+  // Hapus anak dulu (email_status_history, user_labels) agar tidak melanggar FOREIGN KEY.
+  await db
+    .prepare('DELETE FROM email_status_history WHERE email_id IN (SELECT id FROM emails WHERE user_id = ?)')
+    .bind(userId)
+    .run();
   await db.prepare('DELETE FROM emails WHERE user_id = ?').bind(userId).run();
   await db.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(userId).run();
+  await db.prepare('DELETE FROM user_labels WHERE user_id = ?').bind(userId).run();
   await db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
   return { deleted: true };
 }
@@ -2747,8 +2784,17 @@ export async function purgeExpiredSoftDeletedUsersInDb(
   }
 
   const placeholders = ids.map(() => '?').join(', ');
+  // Hapus anak dulu (email_status_history, user_labels) agar tidak melanggar FOREIGN KEY.
+  await db
+    .prepare(
+      `DELETE FROM email_status_history
+       WHERE email_id IN (SELECT id FROM emails WHERE user_id IN (${placeholders}))`
+    )
+    .bind(...ids)
+    .run();
   await db.prepare(`DELETE FROM emails WHERE user_id IN (${placeholders})`).bind(...ids).run();
   await db.prepare(`DELETE FROM login_sessions WHERE user_id IN (${placeholders})`).bind(...ids).run();
+  await db.prepare(`DELETE FROM user_labels WHERE user_id IN (${placeholders})`).bind(...ids).run();
   const result = await db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).bind(...ids).run();
 
   return Number(result?.meta?.changes ?? 0);

@@ -13,7 +13,8 @@ import {
   restoreUserInDb,
   deleteUserPermanentlyInDb,
   deleteTrashedUsersInDb,
-  purgeExpiredSoftDeletedUsersInDb
+  purgeExpiredSoftDeletedUsersInDb,
+  emptyTrashForUserInDb
 } from './db';
 
 class FakeD1 {
@@ -168,5 +169,42 @@ describe('Alur Sampah user', () => {
     expect(await countUsersFromDb(asD1(fake), { status: 'all' })).toBe(3);
     expect(await countUsersFromDb(asD1(fake), { status: 'active' })).toBe(2);
     expect(await countUsersFromDb(asD1(fake), { status: 'deleted' })).toBe(1);
+  });
+
+  it('hapus permanen user yang punya email + history + label tidak melanggar FOREIGN KEY', async () => {
+    // Aktifkan FK agar regresi FK benar-benar terdeteksi (D1 produksi FK=ON).
+    fake.db.exec('PRAGMA foreign_keys = ON');
+
+    const rows = fake.db.prepare('SELECT id, email FROM users').all() as Array<{ id: string; email: string }>;
+    const andi = rows.find((r) => r.email === 'andi@example.com')!;
+
+    // Seed email + history + label milik andi.
+    fake.db.prepare("INSERT INTO emails (id,user_id,sender,recipient,subject,raw_mime) VALUES ('e1',?, 'a@b.c','andi@example.com','s','x')").run(andi.id);
+    fake.db.prepare("INSERT INTO email_status_history (id,email_id,action,actor,from_state,to_state) VALUES ('h1','e1','read','t','a','b')").run();
+    fake.db.prepare("INSERT INTO labels (id,name) VALUES ('l1','penting')").run();
+    fake.db.prepare("INSERT INTO user_labels (user_id,label_id) VALUES (?, 'l1')").run(andi.id);
+
+    // Soft delete lalu hapus permanen — tidak boleh throw.
+    await softDeleteUserInDb(asD1(fake), andi.id);
+    const res = await deleteUserPermanentlyInDb(asD1(fake), andi.id);
+    expect(res.deleted).toBe(true);
+
+    // Semua anak ikut terhapus.
+    expect((fake.db.prepare('SELECT COUNT(*) AS c FROM emails WHERE user_id=?').get(andi.id) as { c: number }).c).toBe(0);
+    expect((fake.db.prepare('SELECT COUNT(*) AS c FROM email_status_history WHERE email_id=?').get('e1') as { c: number }).c).toBe(0);
+    expect((fake.db.prepare('SELECT COUNT(*) AS c FROM user_labels WHERE user_id=?').get(andi.id) as { c: number }).c).toBe(0);
+  });
+
+  it('emptyTrashForUserInDb menghapus email sampah + history tanpa melanggar FOREIGN KEY', async () => {
+    fake.db.exec('PRAGMA foreign_keys = ON');
+    const rows = fake.db.prepare('SELECT id FROM users WHERE email=?').all('andi@example.com') as Array<{ id: string }>;
+    const id = rows[0].id;
+
+    fake.db.prepare("INSERT INTO emails (id,user_id,sender,recipient,subject,raw_mime,deleted_at) VALUES ('e2',?, 'a@b.c','andi@example.com','s','x',CURRENT_TIMESTAMP)").run(id);
+    fake.db.prepare("INSERT INTO email_status_history (id,email_id,action,actor,from_state,to_state) VALUES ('h2','e2','delete','t','a','b')").run();
+
+    const removed = await emptyTrashForUserInDb(asD1(fake), id);
+    expect(removed).toBe(1);
+    expect((fake.db.prepare('SELECT COUNT(*) AS c FROM email_status_history WHERE email_id=?').get('e2') as { c: number }).c).toBe(0);
   });
 });
