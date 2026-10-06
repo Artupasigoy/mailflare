@@ -801,6 +801,21 @@
           ></textarea>
         </label>
 
+        <div class="field">
+          <label for="bulk-password-mode">Password</label>
+          <select id="bulk-password-mode" class="bulk-select" bind:value={bulkPasswordMode}>
+            <option value="random">Acak (berbeda untuk tiap user)</option>
+            <option value="same">Sama untuk semua user</option>
+          </select>
+        </div>
+
+        {#if bulkPasswordMode === 'same'}
+          <div class="field">
+            <label for="bulk-shared-password">Password bersama</label>
+            <InputText id="bulk-shared-password" bind:value={bulkSharedPassword} placeholder="Minimal 8 karakter" type="text" />
+          </div>
+        {/if}
+
         {#if bulkErrors.length > 0}
           <ul class="bulk-errors">
             {#each bulkErrors as item (item)}
