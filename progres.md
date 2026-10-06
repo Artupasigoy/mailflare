@@ -159,5 +159,11 @@ Permintaan & implementasi:
 - `session.ts`: `AuthSession.displayName` (dari `users.display_name`); diteruskan `hooks.server.ts` → `locals.sessionDisplayName`, `app.d.ts`, `+layout.server.ts` → `sessionDisplayName` halaman.
 - Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **53/53**, `npm run build` sukses.
 
+### 2026-10-07 — Sesi 10 (perbaikan keterbacaan email di dark mode)
+- **Gejala**: di dark mode, isi email tampil abu-abu terang di atas latar putih (mis. email "Confirm your email" dari Meta) sehingga tidak jelas.
+- **Sebab**: `EmailBodyViewer` memaksa semua teks email jadi terang (`#e3e6ea !important`) di dark mode, padahal banyak email punya latar putih sendiri.
+- **Perbaikan**: deteksi apakah email mendefinisikan latar/warna sendiri (`bgcolor=` / `background`/`background-color:`). Kalau ya → jangan override warna, beri backdrop `#ffffff` + warisan teks `#202124`. Kalau tidak → tetap teks terang `#e3e6ea` dengan body transparan.
+- Verifikasi: `npm run check` **0 error / 0 warning**, `npm run build` sukses; regex diuji terhadap beberapa bentuk HTML.
+
 ### <tambahkan sesi berikutnya di sini>
 - …

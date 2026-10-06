@@ -14,6 +14,9 @@
   $: hasHtml = bodyHtml.trim().length > 0;
   $: plainText = (bodyText || snippet || '(No Content)').trim();
   $: frameSrcDoc = buildFrameSrcDoc(bodyHtml);
+  // Email yang mendefinisikan latar/warnanya sendiri (mis. bg putih) HARUS
+  // dihormati — jangan paksa teks terang di dark mode (bikin abu-abu di bg putih).
+  $: emailDefinesOwnBackground = /bgcolor\s*=|background(?:-color|-image)?\s*:/i.test(bodyHtml);
 
   function buildFrameSrcDoc(rawHtml: string): string {
     const html = rawHtml.trim();
@@ -33,8 +36,10 @@
     timers = [];
   }
 
-  // Email-HTML sering tidak menentukan warna teks/latar sendiri. Yang diubah hanya
-  // WARNA TEKS (agar tetap terbaca); background mengikuti tema aplikasi ( transparan ).
+  // Email-HTML sering tidak menentukan warna teks/latar sendiri. Di dark mode:
+  // - Bila email TIDAK punya latar sendiri → paksa teks terang (background transparan).
+  // - Bila email PUNYA latar sendiri (mis. bg putih) → jangan override; beri backdrop
+  //   terang + warisan teks gelap agar tetap terbaca (bug "teks abu di bg putih").
   function applyTheme() {
     try {
       const doc = frameEl?.contentDocument;
@@ -43,12 +48,20 @@
       }
 
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const foreground = isDark ? '#e3e6ea' : '#202124';
+      // Email dengan latar/warna sendiri → biarkan apa adanya (jangan di-override),
+      // tetapi paksa latar terang di belakangnya agar bagian transparan tetap terbaca
+      // bila teks email berwarna gelap.
+      const respectOwnTheme = isDark && emailDefinesOwnBackground;
+      // Teks tanpa warna eksplisit mewarisi body. Saat email berlatar sendiri,
+      // warisan harus gelap (teks di bg putih); selain itu terang di dark mode.
+      const inheritColor = isDark ? (respectOwnTheme ? '#202124' : '#e3e6ea') : '';
 
-      doc.documentElement.style.backgroundColor = 'transparent';
+      // Email dengan latar sendiri (mis. putih): beri backdrop terang di <html>,
+      // biarkan body transparan agar latar/warna asli email tetap menang.
+      doc.documentElement.style.backgroundColor = respectOwnTheme ? '#ffffff' : 'transparent';
       doc.body.style.backgroundColor = 'transparent';
-      doc.documentElement.style.color = foreground;
-      doc.body.style.color = foreground;
+      doc.documentElement.style.color = inheritColor;
+      doc.body.style.color = inheritColor;
 
       let styleEl = doc.getElementById('__mailflare_theme') as HTMLStyleElement | null;
       if (!styleEl) {
@@ -57,14 +70,17 @@
         doc.head?.appendChild(styleEl);
       }
 
-      styleEl.textContent = isDark
-        ? `body, body p, body div, body span, body em, body strong, body b, body i, body small,
+      if (!isDark || respectOwnTheme) {
+        // Terang, atau email punya latar sendiri → jangan override warna sama sekali.
+        styleEl.textContent = '';
+      } else {
+        styleEl.textContent = `body, body p, body div, body span, body em, body strong, body b, body i, body small,
            body h1, body h2, body h3, body h4, body h5, body h6, body ul, body ol, body li,
            body td, body th, body label, body blockquote, body pre, body code, body a {
-             color: ${foreground} !important;
+             color: #e3e6ea !important;
            }
-           body a { text-decoration-color: ${foreground}; }`
-        : '';
+           body a { text-decoration-color: #e3e6ea; }`;
+      }
     } catch {
       // Abaikan bila dokumen tidak bisa diakses.
     }
