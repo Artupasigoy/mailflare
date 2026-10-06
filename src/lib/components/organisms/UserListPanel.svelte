@@ -790,7 +790,7 @@
 
       {#if bulkCredentials.length === 0}
         <form class="modal-body modal-form" on:submit|preventDefault={handleBulkCreate}>
-        <label class="field">
+        <div class="field">
           <label for="bulk-usernames">Daftar username</label>
           <textarea
             id="bulk-usernames"
@@ -799,7 +799,7 @@
             bind:value={bulkUsernames}
             placeholder={'andi\nbudi\nsiti'}
           ></textarea>
-        </label>
+        </div>
 
         <div class="field">
           <label for="bulk-password-mode">Password</label>
