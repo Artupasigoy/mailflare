@@ -10,6 +10,7 @@
   import { page } from '$app/stores';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let data: PageData;
   $: adminEmail = $page.data.sessionEmail ?? null;
@@ -75,9 +76,7 @@
       return;
     }
 
-    if (!confirm(`Hapus permanen user ${data.user.email}? Tindakan ini tidak bisa dibatalkan.`)) {
-      return;
-    }
+    if (!(await confirmDialog({ title: 'Hapus Permanen', message: `User ${data.user.email} akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Hapus Permanen', danger: true }))) return;
 
     isDeleting = true;
     errorMessage = '';

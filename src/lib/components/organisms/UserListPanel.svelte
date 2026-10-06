@@ -10,6 +10,7 @@
   import InputTextarea from '$lib/components/atoms/InputTextarea.svelte';
   import Pager from '$lib/components/molecules/Pager.svelte';
   import { toastStore } from '$lib/stores/toast.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let users: UserDto[] = [];
   export let total = 0;
@@ -151,9 +152,7 @@
     if (selectedPermanent === 0) {
       return;
     }
-    if (!confirm(`Hapus permanen ${selectedPermanent} user beserta emailnya? Tindakan ini tidak bisa dibatalkan.`)) {
-      return;
-    }
+    if (!(await confirmDialog({ title: 'Hapus Permanen', message: `${selectedPermanent} user beserta emailnya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Hapus Permanen', danger: true }))) return;
     bulkPending = true;
     listMessage = '';
     try {
@@ -186,7 +185,7 @@
 
   async function handleRestore(user: UserDto) {
     if (bulkPending || user.role === 'owner') return;
-    if (!confirm(`Pulihkan ${user.email}? Password baru akan dibuat.`)) return;
+    if (!(await confirmDialog({ title: 'Pulihkan User', message: `${user.email} akan dipulihkan. Password baru akan dibuat.`, confirmLabel: 'Pulihkan', }))) return;
     bulkPending = true;
     listMessage = '';
     try {
@@ -221,7 +220,7 @@
 
   async function handleBulkRestore() {
     if (bulkPending || selectedIds.length === 0) return;
-    if (!confirm(`Pulihkan ${selectedIds.length} user terpilih?`)) return;
+    if (!(await confirmDialog({ title: 'Pulihkan User', message: `${selectedIds.length} user akan dipulihkan. Password baru akan dibuat untuk masing-masing.`, confirmLabel: 'Pulihkan', }))) return;
     bulkPending = true;
     listMessage = '';
     try {
@@ -451,9 +450,7 @@
     if (isSubmitting || actionUserId) {
       return;
     }
-    if (!confirm(`Reset password untuk ${user.email}?`)) {
-      return;
-    }
+    if (!(await confirmDialog({ title: 'Reset Password', message: `Password baru akan dibuat untuk ${user.email}.`, confirmLabel: 'Reset' }))) return;
 
     errorMessage = '';
     listMessage = '';
@@ -493,7 +490,7 @@
 
   async function handlePermanentDelete(user: UserDto) {
     if (actionUserId) return;
-    if (!confirm(`Hapus permanen ${user.email} beserta emailnya? Tindakan ini tidak bisa dibatalkan.`)) return;
+    if (!(await confirmDialog({ title: 'Hapus Permanen', message: `${user.email} beserta emailnya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Hapus Permanen', danger: true, }))) return;
     actionUserId = user.id;
     listMessage = '';
     try {
@@ -519,7 +516,7 @@
 
   async function handleEmptyTrash() {
     if (bulkPending) return;
-    if (!confirm('Kosongkan Sampah? Semua user di Sampah dihapus permanen beserta emailnya. Tindakan ini tidak bisa dibatalkan.')) return;
+    if (!(await confirmDialog({ title: 'Kosongkan Sampah', message: `Semua user di Sampah akan dihapus permanen beserta emailnya. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Kosongkan', danger: true, }))) return;
     bulkPending = true;
     listMessage = '';
     try {
@@ -552,9 +549,7 @@
       listMessage = 'Akun owner tidak bisa dihapus.';
       return;
     }
-    if (!confirm(`Pindahkan user ${user.email} ke Sampah? User tidak bisa login, email tetap tersimpan, bisa dipulihkan selama 30 hari.`)) {
-      return;
-    }
+    if (!(await confirmDialog({ title: 'Pindahkan ke Sampah', message: `${user.email} akan dipindahkan ke Sampah. User tidak bisa login, email tetap tersimpan, bisa dipulihkan selama 30 hari.`, confirmLabel: 'Pindahkan' }))) return;
 
     errorMessage = '';
     listMessage = '';

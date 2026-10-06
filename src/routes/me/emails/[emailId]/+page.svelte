@@ -11,6 +11,7 @@
   import EmailBodyViewer from '$lib/components/molecules/EmailBodyViewer.svelte';
   import type { PageData } from './$types';
   import { toastStore } from '$lib/stores/toast.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let data: PageData;
 
@@ -43,7 +44,7 @@
       return;
     }
 
-    if (action === 'delete' && !confirm('Pindahkan email ini ke Sampah?')) {
+    if (action === 'delete' && !(await confirmDialog({ title: 'Pindahkan ke Sampah', message: 'Email ini akan dipindahkan ke Sampah.', confirmLabel: 'Pindahkan', danger: true }))) {
       return;
     }
 

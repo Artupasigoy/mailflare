@@ -4,6 +4,7 @@
   import Icon from '$lib/components/atoms/Icon.svelte';
   import MailRow from '$lib/components/molecules/MailRow.svelte';
   import { toastStore } from '$lib/stores/toast.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let emails: EmailDto[] = [];
   export let trashEmails: EmailDto[] = [];
@@ -157,7 +158,7 @@
 
   async function bulkDelete() {
     if (bulkPending || selectionCount === 0 || activeView === 'trash') return;
-    if (!confirm(`Pindahkan ${selectionCount} email ke Sampah?`)) return;
+    if (!(await confirmDialog({ title: 'Pindahkan ke Sampah', message: `${selectionCount} email akan dipindahkan ke Sampah.`, confirmLabel: 'Pindahkan', danger: true, }))) return;
     bulkPending = true;
     try {
       const response = await fetch(`${apiHrefPrefix}/bulk`, {
@@ -197,7 +198,7 @@
 
   async function emptyTrash() {
     if (emptyPending || !trashEmptyUrl || trashEmails.length === 0) return;
-    if (!confirm(`Kosongkan Sampah? ${trashEmails.length} email akan dihapus permanen.`)) return;
+    if (!(await confirmDialog({ title: 'Kosongkan Sampah', message: `${trashEmails.length} email akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Kosongkan', danger: true, }))) return;
     emptyPending = true;
     emptyError = '';
     try {

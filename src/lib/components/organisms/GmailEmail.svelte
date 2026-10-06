@@ -4,6 +4,7 @@
   import Icon from '$lib/components/atoms/Icon.svelte';
   import EmailBodyViewer from '$lib/components/molecules/EmailBodyViewer.svelte';
   import { toastStore } from '$lib/stores/toast.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let email: EmailDetailDto;
   export let apiBase: string;
@@ -19,7 +20,7 @@
 
   async function act(action: 'star' | 'delete' | 'untrash' | 'unread') {
     if (pending) return;
-    if (action === 'delete' && !confirm('Pindahkan ke Sampah?')) return;
+    if (action === 'delete' && !(await confirmDialog({ title: 'Pindahkan ke Sampah', message: 'Email ini akan dipindahkan ke Sampah.', confirmLabel: 'Pindahkan', danger: true }))) return;
     pending = true;
     error = '';
     try {

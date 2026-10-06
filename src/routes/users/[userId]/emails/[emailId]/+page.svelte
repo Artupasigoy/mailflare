@@ -14,6 +14,7 @@
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
   import { toastStore } from '$lib/stores/toast.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   export let data: PageData;
   $: adminEmail = $page.data.sessionEmail ?? null;
@@ -56,7 +57,7 @@
       return;
     }
 
-    if (action === 'delete' && !confirm('Pindahkan email ini ke Sampah?')) {
+    if (action === 'delete' && !(await confirmDialog({ title: 'Pindahkan ke Sampah', message: 'Email ini akan dipindahkan ke Sampah.', confirmLabel: 'Pindahkan', danger: true }))) {
       return;
     }
 
