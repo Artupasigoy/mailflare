@@ -1,9 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { error, redirect } from '@sveltejs/kit';
 import {
-  getUserArchivedEmailCount,
   getUserById,
   getUserInbox,
+  getUserTrash,
   searchUserInbox
 } from '$lib/server/services/users.service';
 
@@ -19,11 +19,11 @@ export const load: PageServerLoad = async (event) => {
   const rawQuery = (event.url.searchParams.get('q') ?? '').slice(0, 200);
   const isSearching = rawQuery.trim().length > 0;
 
-  const [emailSource, currentUser, archivedCount, searchMeta] = await Promise.all([
+  const [emailSource, currentUser, searchMeta, trashEmails] = await Promise.all([
     isSearching ? Promise.resolve([]) : getUserInbox(event, userId),
     getUserById(event, userId),
-    getUserArchivedEmailCount(event, userId),
-    isSearching ? searchUserInbox(event, userId, rawQuery) : Promise.resolve(null)
+    isSearching ? searchUserInbox(event, userId, rawQuery) : Promise.resolve(null),
+    isSearching ? Promise.resolve([]) : getUserTrash(event, userId)
   ]);
 
   if (!currentUser) {
@@ -36,7 +36,7 @@ export const load: PageServerLoad = async (event) => {
     userId,
     currentUser,
     emails,
-    archivedCount,
+    trashEmails,
     inboxOnly: !isOwner,
     search: isSearching
       ? {

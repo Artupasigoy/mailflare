@@ -1,7 +1,6 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation';
-  import { darkMode } from '$lib/stores/ui.store';
-  import SearchField from '$lib/components/molecules/SearchField.svelte';
+    import SearchField from '$lib/components/molecules/SearchField.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
 
   export let userLabel = '';
@@ -43,9 +42,6 @@
     }
   }
 
-  function handleThemeToggle() {
-    darkMode.update((value) => !value);
-  }
 </script>
 
 <header class="topbar">
@@ -75,15 +71,6 @@
       {/if}
 
       <slot name="actions" />
-
-      <button
-        class="icon-btn"
-        type="button"
-        aria-label={$darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-        on:click={handleThemeToggle}
-      >
-        <Icon name={$darkMode ? 'light_mode' : 'dark_mode'} size={18} />
-      </button>
 
       {#if showLogout}
         <div class="divider" aria-hidden="true"></div>

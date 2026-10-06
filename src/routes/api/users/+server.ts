@@ -68,11 +68,16 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
 
     return json({
       ok: true,
+      // `credentials` dipakai UI untuk menampilkan & menyalin kredensial.
+      credentials: {
+        username: usernameRaw,
+        email,
+        password
+      },
       user: {
         id: created.id,
         email: created.email,
-        displayName: created.displayName,
-        password
+        displayName: created.displayName
       }
     });
   } catch (error) {

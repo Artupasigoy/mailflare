@@ -106,6 +106,7 @@ export interface EmailDetailDto {
   isRead: boolean;
   isStarred: boolean;
   isArchived: boolean;
+  attachmentCount?: number;
 }
 
 export interface WorkerSettingsDto {

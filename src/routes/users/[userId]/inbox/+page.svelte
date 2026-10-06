@@ -1,34 +1,28 @@
 <script lang="ts">
   import { afterNavigate, goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import AppSidebar from '$lib/components/organisms/AppSidebar.svelte';
   import AppTopbar from '$lib/components/organisms/AppTopbar.svelte';
   import MailboxTopbar from '$lib/components/organisms/MailboxTopbar.svelte';
-  import InboxTable from '$lib/components/organisms/InboxTable.svelte';
+  import GmailInbox from '$lib/components/organisms/GmailInbox.svelte';
+  import GmailTabs from '$lib/components/organisms/GmailTabs.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
-  import { page } from '$app/stores';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
 
   export let data: PageData;
+
   $: adminEmail = $page.data.sessionEmail ?? null;
 
   let searchQuery = '';
 
-  $: normalizedQuery = searchQuery.trim().toLowerCase();
-  $: filteredEmails = data.search
-    ? data.emails
-    : normalizedQuery
-      ? data.emails.filter((email) =>
-          [email.sender, email.subject, email.snippet].some((field) => field.toLowerCase().includes(normalizedQuery))
-        )
-      : data.emails;
   $: unreadCount = data.emails.filter((email) => !email.isRead && !email.isArchived).length;
-  $: starredCount = data.emails.filter((email) => email.isStarred && !email.isArchived).length;
-  $: archivedCount = data.archivedCount ?? 0;
-  $: inboxCount = Math.max(0, Number(data.currentUser?.totalEmails ?? data.emails.length) - archivedCount);
-
   $: activeQuery = data.search?.query ?? '';
   $: isSearching = data.search !== null;
+
+  type MailboxView = 'inbox' | 'starred' | 'trash';
+  $: rawView = $page.url.searchParams.get('view');
+  $: view = (rawView === 'starred' ? 'starred' : rawView === 'trash' ? 'trash' : 'inbox') as MailboxView;
 
   afterNavigate(({ to }) => {
     const next = to?.url.searchParams.get('q') ?? '';
@@ -62,6 +56,7 @@
       noScroll: true
     });
   }
+
 </script>
 
 {#if data.inboxOnly}
@@ -79,62 +74,33 @@
           <h1>Inbox</h1>
           <span class="badge">{unreadCount} New</span>
         </div>
-        {#if isSearching}
-          <div class="search-indicator" role="status">
-            <Icon name="search" size={16} />
-            <span>
-              Hasil untuk <strong>"{activeQuery}"</strong> &middot;
-              {data.search?.resultCount ?? 0} email
-            </span>
-            <button type="button" class="clear-btn" on:click={handleClear} aria-label="Clear search">
-              <Icon name="close" size={16} />
-              <span>Reset</span>
-            </button>
-          </div>
-        {/if}
       </div>
 
-      {#if isSearching && filteredEmails.length === 0}
+      {#if isSearching && data.emails.length === 0}
         <div class="empty-search">
           <Icon name="search_off" size={36} />
           <h3>Tidak ada email cocok</h3>
-          <p class="text-muted">
-            Coba kata kunci lain. Pencarian saat ini memindai subject, pengirim, penerima,
-            snippet, dan body email.
-          </p>
           <button type="button" class="reset-btn" on:click={handleClear}>
             <Icon name="arrow_back" size={16} />
             <span>Kembali ke inbox</span>
           </button>
         </div>
       {:else}
-        <InboxTable
-          userId={data.userId}
-          emails={filteredEmails}
+        <div class="tab-wrap">
+          <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} searchQuery={searchQuery} />
+        </div>
+        <GmailInbox
+          emails={data.emails}
+          trashEmails={data.trashEmails ?? []}
           emailHrefPrefix="/me/emails"
-          mailboxOnly={true}
+          apiHrefPrefix="/api/me/emails"
+          isSearching={isSearching}
+          resultCount={data.search?.resultCount ?? 0}
+          view={view}
+          trashEmptyUrl="/api/me/trash/empty"
         />
       {/if}
     </div>
-
-    <footer class="stats-footer">
-      <div class="stats-grid">
-        <div class="stat">
-          <span>Total Inbox</span>
-          <strong>{inboxCount}</strong>
-        </div>
-        <div class="separator" aria-hidden="true"></div>
-        <div class="stat">
-          <span>Total Starred</span>
-          <strong>{starredCount}</strong>
-        </div>
-        <div class="separator" aria-hidden="true"></div>
-        <div class="stat">
-          <span>Total Archived</span>
-          <strong>{archivedCount}</strong>
-        </div>
-      </div>
-    </footer>
   </section>
 {:else}
   <div class="layout-shell">
@@ -143,66 +109,40 @@
       <AppTopbar
         title="Inbox"
         variant="minimal"
+        bind:searchQuery
+        searchPlaceholder="Cari email..."
+        onSearch={handleSubmit}
         showRefresh={false}
         showLogout={false}
+        mailboxEmail={data.currentUser?.email ?? data.userId}
       />
-      <div class="content">
-        <div class="inbox-head">
-          {#if isSearching}
-            <div class="search-indicator" role="status">
-              <Icon name="search" size={16} />
-              <span>
-                Hasil untuk <strong>"{activeQuery}"</strong> &middot;
-                {data.search?.resultCount ?? 0} email
-              </span>
-              <button type="button" class="clear-btn" on:click={handleClear} aria-label="Clear search">
-                <Icon name="close" size={16} />
-                <span>Reset</span>
-              </button>
-            </div>
-          {/if}
-        </div>
 
-        {#if isSearching && filteredEmails.length === 0}
+      <div class="content">
+        {#if isSearching && data.emails.length === 0}
           <div class="empty-search">
             <Icon name="search_off" size={36} />
             <h3>Tidak ada email cocok</h3>
-            <p class="text-muted">
-              Coba kata kunci lain. Pencarian saat ini memindai subject, pengirim, penerima,
-              snippet, dan body email.
-            </p>
             <button type="button" class="reset-btn" on:click={handleClear}>
               <Icon name="arrow_back" size={16} />
               <span>Kembali ke inbox</span>
             </button>
           </div>
         {:else}
-          <InboxTable
-            userId={data.userId}
-            emails={filteredEmails}
+          <div class="tab-wrap">
+            <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} searchQuery={searchQuery} />
+          </div>
+          <GmailInbox
+            emails={data.emails}
+            trashEmails={data.trashEmails ?? []}
             emailHrefPrefix={`/users/${data.userId}/emails`}
-            mailboxOnly={true}
+            apiHrefPrefix={`/api/users/${data.userId}/emails`}
+            isSearching={isSearching}
+            resultCount={data.search?.resultCount ?? 0}
+            view={view}
+            trashEmptyUrl={`/api/users/${data.userId}/trash/empty`}
           />
         {/if}
       </div>
-      <footer class="stats-footer dashboard-footer">
-        <div class="stats-grid">
-          <div class="stat">
-            <span>Total Inbox</span>
-            <strong>{inboxCount}</strong>
-          </div>
-          <div class="separator" aria-hidden="true"></div>
-          <div class="stat">
-            <span>Total Starred</span>
-            <strong>{starredCount}</strong>
-          </div>
-          <div class="separator" aria-hidden="true"></div>
-          <div class="stat">
-            <span>Total Archived</span>
-            <strong>{archivedCount}</strong>
-          </div>
-        </div>
-      </footer>
     </section>
   </div>
 {/if}
@@ -216,10 +156,21 @@
 
   .content {
     padding: var(--space-5);
+    flex: 1;
+    display: grid;
+    gap: var(--space-3);
+    align-content: start;
   }
 
-  .main .content {
-    flex: 1;
+  .inbox-only-main .content {
+    align-content: start;
+  }
+
+  .tab-wrap {
+    background: var(--gm-bg);
+    border: 1px solid var(--gm-border);
+    border-radius: 12px;
+    padding: 0 0.35rem;
   }
 
   .inbox-only-main {
@@ -265,42 +216,6 @@
     font-weight: 700;
   }
 
-  .search-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.45rem 0.6rem 0.45rem 0.85rem;
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--color-primary-500), var(--color-surface-card) 92%);
-    color: var(--color-primary-500);
-    font-size: 0.82rem;
-    font-weight: 600;
-    flex-wrap: wrap;
-  }
-
-  .search-indicator strong {
-    color: var(--color-text);
-    font-weight: 700;
-  }
-
-  .clear-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    border: 1px solid color-mix(in srgb, var(--color-primary-500), transparent 60%);
-    background: transparent;
-    color: var(--color-primary-500);
-    border-radius: var(--radius-pill);
-    padding: 0.2rem 0.7rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .clear-btn:hover {
-    background: color-mix(in srgb, var(--color-primary-500), var(--color-surface-card) 80%);
-  }
-
   .empty-search {
     display: grid;
     place-items: center;
@@ -318,11 +233,6 @@
     color: var(--color-text);
   }
 
-  .empty-search p {
-    margin: 0;
-    max-width: 38ch;
-  }
-
   .reset-btn {
     display: inline-flex;
     align-items: center;
@@ -336,86 +246,5 @@
     border-radius: var(--radius-pill);
     cursor: pointer;
     margin-top: 0.4rem;
-  }
-
-  .stats-footer {
-    border-top: 1px solid color-mix(in srgb, var(--color-outline), transparent 76%);
-    padding: var(--space-5) var(--space-3);
-  }
-
-  .inbox-only-main .stats-footer {
-    margin-top: auto;
-  }
-
-  .dashboard-footer {
-    margin-top: 0;
-  }
-
-  .stats-grid {
-    max-width: 80rem;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-5);
-  }
-
-  .stat {
-    text-align: center;
-  }
-
-  .stat span {
-    display: block;
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--color-text-muted);
-    margin-bottom: 0.35rem;
-    font-weight: 700;
-  }
-
-  .stat strong {
-    font-family: var(--font-family-headline);
-    font-size: 1.45rem;
-  }
-
-  .separator {
-    width: 1px;
-    height: 2.2rem;
-    background: color-mix(in srgb, var(--color-outline), transparent 70%);
-  }
-
-  @media (max-width: 960px) {
-    .content {
-      padding: var(--space-4) var(--space-3);
-    }
-
-    .inbox-only-main .content {
-      padding: var(--space-5) var(--space-3);
-      gap: var(--space-4);
-    }
-
-    .title-wrap h1 {
-      font-size: 1.45rem;
-    }
-
-    .stats-footer {
-      padding: var(--space-4) var(--space-3);
-    }
-
-    .stats-grid {
-      gap: var(--space-3);
-      width: 100%;
-      justify-content: space-between;
-      flex-wrap: wrap;
-    }
-
-    .separator {
-      display: none;
-    }
-
-    .stat strong {
-      font-size: 1.2rem;
-    }
   }
 </style>

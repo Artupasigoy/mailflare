@@ -159,8 +159,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at TEXT
 );
 
--- Migration: add user_id to api_keys (idempotent)
-ALTER TABLE api_keys ADD COLUMN user_id TEXT;
 
 -- ── Indexes ────────────────────────────────────────────────────────────
 -- Optimasi list inbox user yang memfilter Trash (deleted_at IS NULL + urutan)

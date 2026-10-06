@@ -65,9 +65,9 @@ export interface SoftDeleteUserResult {
   reason?: 'not_found' | 'already_deleted' | 'protected_owner';
 }
 
-export type EmailQuickAction = 'star' | 'archive' | 'delete';
+export type EmailQuickAction = 'star' | 'delete' | 'untrash' | 'read' | 'unread';
 
-type EmailQuickActionReason = 'not_found' | 'already_archived' | 'already_deleted';
+type EmailQuickActionReason = 'not_found' | 'already_deleted';
 
 export interface EmailActionState {
   id: string;
@@ -1200,6 +1200,40 @@ export async function getUserInboxFromDb(db: D1Database | undefined, userId: str
   }));
 }
 
+export async function getUserTrashFromDb(db: D1Database | undefined, userId: string): Promise<EmailDto[]> {
+  if (!db) {
+    return [];
+  }
+
+  const query = `
+    SELECT
+      id,
+      sender,
+      subject,
+      snippet,
+      received_at,
+      is_read,
+      is_starred,
+      is_archived
+    FROM emails
+    WHERE user_id = ?
+      AND deleted_at IS NOT NULL
+    ORDER BY deleted_at DESC
+    LIMIT 100
+  `;
+  const { results } = await db.prepare(query).bind(userId).all<Record<string, unknown>>();
+  return (results ?? []).map((row) => ({
+    id: String(row.id),
+    sender: String(row.sender ?? ''),
+    subject: String(row.subject ?? '(No Subject)'),
+    snippet: String(row.snippet ?? ''),
+    receivedAt: String(row.received_at ?? ''),
+    isRead: Number(row.is_read ?? 0) === 1,
+    isStarred: Number(row.is_starred ?? 0) === 1,
+    isArchived: Number(row.is_archived ?? 0) === 1
+  }));
+}
+
 export interface SearchUserInboxOptions {
   query: string;
   limit?: number;
@@ -1306,7 +1340,8 @@ export async function getEmailByIdFromDb(
         body_text,
         body_html,
         parsed_text,
-        parsed_html
+        parsed_html,
+        parsed_attachment_count
       FROM emails
       WHERE id = ?
         AND user_id = ?
@@ -1340,8 +1375,161 @@ export async function getEmailByIdFromDb(
     bodyHtml,
     isRead: true,
     isStarred: Number(row.is_starred ?? 0) === 1,
-    isArchived: Number(row.is_archived ?? 0) === 1
+    isArchived: Number(row.is_archived ?? 0) === 1,
+    attachmentCount: Number(row.parsed_attachment_count ?? 0)
   };
+}
+
+export type BulkEmailAction = 'delete' | 'read' | 'unread';
+
+export const TRASH_RETENTION_DAYS = 30;
+
+/** Hapus permanen email di Sampah yang sudah lewat masa retensi (default 30 hari). */
+export async function purgeExpiredTrashInDb(
+  db: D1Database | undefined,
+  retentionDays = TRASH_RETENTION_DAYS
+): Promise<number> {
+  if (!db) {
+    return 0;
+  }
+
+  const days = Math.min(Math.max(Number(retentionDays) || TRASH_RETENTION_DAYS, 1), 365);
+  const result = await db
+    .prepare(
+      `DELETE FROM emails
+       WHERE deleted_at IS NOT NULL
+         AND deleted_at < datetime('now', ?)`
+    )
+    .bind(`-${days} days`)
+    .run();
+
+  return Number(result?.meta?.changes ?? 0);
+}
+
+/** Kosongkan Sampah milik satu user (hapus permanen semua email di Sampah). */
+export async function emptyTrashForUserInDb(db: D1Database | undefined, userId: string): Promise<number> {
+  if (!db) {
+    return 0;
+  }
+
+  const result = await db
+    .prepare("DELETE FROM emails WHERE user_id = ? AND deleted_at IS NOT NULL")
+    .bind(userId)
+    .run();
+
+  return Number(result?.meta?.changes ?? 0);
+}
+
+export interface BulkEmailActionResult {
+  updated: number;
+  notFound: number;
+}
+
+export async function bulkUpdateEmailsInDb(
+  db: D1Database | undefined,
+  userId: string,
+  emailIds: string[],
+  action: BulkEmailAction,
+  actor: string
+): Promise<BulkEmailActionResult> {
+  if (!db) {
+    throw new Error('DB binding is required for update operation');
+  }
+
+  const ids = Array.from(new Set((emailIds ?? []).map((id) => String(id)).filter((id) => id.length > 0))).slice(0, 200);
+  if (ids.length === 0) {
+    return { updated: 0, notFound: 0 };
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const before = await db
+    .prepare(
+      `
+      SELECT id, is_read, is_starred, is_archived, deleted_at
+      FROM emails
+      WHERE user_id = ? AND id IN (${placeholders})
+    `
+    )
+    .bind(userId, ...ids)
+    .all<Record<string, unknown>>();
+
+  const rows = before.results ?? [];
+  const notFound = ids.length - rows.length;
+  const eligible = rows.filter((row) => !row.deleted_at).map((row) => String(row.id));
+
+  if (eligible.length === 0) {
+    return { updated: 0, notFound };
+  }
+
+  const eligibleSet = new Set(eligible);
+  const updatePlaceholders = eligible.map(() => '?').join(', ');
+
+  if (action === 'delete') {
+    await db
+      .prepare(
+        `
+        UPDATE emails
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+        WHERE user_id = ? AND id IN (${updatePlaceholders})
+      `
+      )
+      .bind(userId, ...eligible)
+      .run();
+  } else {
+    const readValue = action === 'read' ? 1 : 0;
+    await db
+      .prepare(`UPDATE emails SET is_read = ? WHERE user_id = ? AND id IN (${updatePlaceholders})`)
+      .bind(readValue, userId, ...eligible)
+      .run();
+  }
+
+  const historyRows = rows
+    .filter((row) => eligibleSet.has(String(row.id)))
+    .map((row) => {
+      const id = String(row.id);
+      const fromState: EmailActionState = {
+        id,
+        userId,
+        isRead: Number(row.is_read ?? 0) === 1,
+        isStarred: Number(row.is_starred ?? 0) === 1,
+        isArchived: Number(row.is_archived ?? 0) === 1,
+        deletedAt: null
+      };
+      const toState: EmailActionState =
+        action === 'delete'
+          ? { ...fromState, deletedAt: 'now' }
+          : action === 'read'
+            ? { ...fromState, isRead: true }
+            : { ...fromState, isRead: false };
+      return { id, from: buildEmailState(fromState), to: buildEmailState(toState) };
+    });
+
+  if (historyRows.length > 0) {
+    const chunkSize = 50;
+    for (let i = 0; i < historyRows.length; i += chunkSize) {
+      const chunk = historyRows.slice(i, i + chunkSize);
+      const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').join(', ');
+      const bindings: string[] = [];
+      for (const row of chunk) {
+        bindings.push(crypto.randomUUID(), row.id, action, actor, row.from, row.to);
+      }
+      try {
+        await db
+          .prepare(
+            `
+            INSERT INTO email_status_history (id, email_id, action, actor, from_state, to_state, created_at)
+            VALUES ${values}
+          `
+          )
+          .bind(...bindings)
+          .run();
+      } catch {
+        // Ignore history failures.
+      }
+    }
+  }
+
+  return { updated: eligible.length, notFound };
 }
 
 export async function getUserArchivedEmailCountFromDb(db: D1Database | undefined, userId: string): Promise<number> {
@@ -1373,36 +1561,43 @@ export async function applyEmailQuickActionInDb(
     return { updated: false, reason: 'not_found' };
   }
 
-  if (beforeState.deletedAt) {
-    return { updated: false, reason: 'already_deleted' };
-  }
+  if (action === 'untrash') {
+    if (!beforeState.deletedAt) {
+      return { updated: false, reason: 'already_deleted', email: beforeState };
+    }
+    await db.prepare('UPDATE emails SET deleted_at = NULL WHERE id = ? AND user_id = ?').bind(emailId, userId).run();
+  } else {
+    if (beforeState.deletedAt) {
+      return { updated: false, reason: 'already_deleted' };
+    }
 
-  if (action === 'archive' && beforeState.isArchived) {
-    return { updated: false, reason: 'already_archived', email: beforeState };
-  }
-
-  if (action === 'star') {
-    await db
-      .prepare(
+    if (action === 'star') {
+      await db
+        .prepare(
+          `
+          UPDATE emails
+          SET is_starred = CASE WHEN is_starred = 1 THEN 0 ELSE 1 END
+          WHERE id = ? AND user_id = ?
         `
-        UPDATE emails
-        SET is_starred = CASE WHEN is_starred = 1 THEN 0 ELSE 1 END
-        WHERE id = ? AND user_id = ?
-      `
-      )
-      .bind(emailId, userId)
-      .run();
-  }
+        )
+        .bind(emailId, userId)
+        .run();
+    }
 
-  if (action === 'archive') {
-    await db.prepare('UPDATE emails SET is_archived = 1 WHERE id = ? AND user_id = ?').bind(emailId, userId).run();
-  }
+    if (action === 'read') {
+      await db.prepare('UPDATE emails SET is_read = 1 WHERE id = ? AND user_id = ?').bind(emailId, userId).run();
+    }
 
-  if (action === 'delete') {
-    await db
-      .prepare("UPDATE emails SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP) WHERE id = ? AND user_id = ?")
-      .bind(emailId, userId)
-      .run();
+    if (action === 'unread') {
+      await db.prepare('UPDATE emails SET is_read = 0 WHERE id = ? AND user_id = ?').bind(emailId, userId).run();
+    }
+
+    if (action === 'delete') {
+      await db
+        .prepare("UPDATE emails SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP) WHERE id = ? AND user_id = ?")
+        .bind(emailId, userId)
+        .run();
+    }
   }
 
   const afterState = await getEmailActionState(db, userId, emailId);

@@ -36,7 +36,9 @@
     <AppTopbar
       title="User List"
       variant="minimal"
-      showSearch={false}
+      showSearch={true}
+      bind:searchQuery
+      searchPlaceholder="Cari user..."
       showRefresh={false}
       showLogout={false}
     />

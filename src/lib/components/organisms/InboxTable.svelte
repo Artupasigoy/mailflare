@@ -9,28 +9,83 @@
   export let userId = '';
   export let emailHrefPrefix = '';
   export let mailboxOnly = false;
+  export let trashEmails: EmailDto[] = [];
+
+  const PAGE_SIZE = 20;
+  let pageIndex = 0;
+  let restorePending = '';
+  let restoreMessage = '';
+  let restoreError = '';
 
   $: rowHrefPrefix = emailHrefPrefix || `/users/${userId}/emails`;
   $: primaryCount = emails.filter((email) => !email.isArchived).length;
   $: starredCount = emails.filter((email) => email.isStarred && !email.isArchived).length;
   $: archivedCount = emails.filter((email) => email.isArchived).length;
 
-  type InboxTab = 'primary' | 'starred' | 'archived';
+  type InboxTab = 'primary' | 'starred' | 'archived' | 'trash';
   let activeTab: InboxTab = 'primary';
 
-$: visibleEmails = (
-    activeTab === 'starred'
+$: filteredEmails = activeTab === 'trash'
+    ? trashEmails
+    : activeTab === 'starred'
       ? emails.filter((email) => email.isStarred && !email.isArchived)
       : activeTab === 'archived'
         ? emails.filter((email) => email.isArchived)
-        : emails.filter((email) => !email.isArchived)
-  )
+        : emails.filter((email) => !email.isArchived);
+
+$: visibleEmails = filteredEmails
   .slice()
   .sort((a, b) => {
     const ta = new Date(a.receivedAt).getTime();
     const tb = new Date(b.receivedAt).getTime();
     return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
   });
+
+$: paginatedEmails = visibleEmails.slice(pageIndex * PAGE_SIZE, pageIndex * PAGE_SIZE + PAGE_SIZE);
+$: totalPages = Math.max(1, Math.ceil(visibleEmails.length / PAGE_SIZE));
+$: if (pageIndex > totalPages - 1) {
+    pageIndex = Math.max(0, totalPages - 1);
+  }
+
+  let lastTab: InboxTab = activeTab;
+  $: if (activeTab !== lastTab) {
+    pageIndex = 0;
+    lastTab = activeTab;
+  }
+
+  function goToPage(next: number) {
+    pageIndex = Math.min(Math.max(0, next), totalPages - 1);
+  }
+
+  async function restoreEmail(emailId: string) {
+    if (restorePending === emailId) {
+      return;
+    }
+    restorePending = emailId;
+    restoreMessage = '';
+    restoreError = '';
+    try {
+      const target = emailHrefPrefix.startsWith('/users/')
+        ? `/api/users/${encodeURIComponent(userId)}/emails/${encodeURIComponent(emailId)}`
+        : `/api/me/emails/${encodeURIComponent(emailId)}`;
+      const response = await fetch(target, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'untrash' })
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        restoreError = payload.error ?? 'Restore failed.';
+        return;
+      }
+      restoreMessage = 'Email restored.';
+      trashEmails = trashEmails.filter((email) => email.id !== emailId);
+    } catch {
+      restoreError = 'Unable to reach server.';
+    } finally {
+      restorePending = '';
+    }
+  }
 
   function initials(sender: string): string {
     const plain = sender.replace(/["<>]/g, ' ').trim();
@@ -76,12 +131,16 @@ $: visibleEmails = (
         <button type="button" class={`tab ${activeTab === 'archived' ? 'active' : ''}`} on:click={() => (activeTab = 'archived')}>
           Archived <span>{archivedCount}</span>
         </button>
+        <button type="button" class={`tab ${activeTab === 'trash' ? 'active' : ''}`} on:click={() => (activeTab = 'trash')}>
+          Trash <span>{trashEmails.length}</span>
+        </button>
       </div>
       <div class="pager">
-        <button type="button" aria-label="Previous page">
+        <button type="button" aria-label="Previous page" on:click={() => goToPage(pageIndex - 1)} disabled={pageIndex === 0}>
           <Icon name="chevron_left" size={18} />
         </button>
-        <button type="button" aria-label="Next page">
+        <span class="pager-label">{pageIndex + 1} / {totalPages}</span>
+        <button type="button" aria-label="Next page" on:click={() => goToPage(pageIndex + 1)} disabled={pageIndex >= totalPages - 1}>
           <Icon name="chevron_right" size={18} />
         </button>
       </div>
@@ -90,26 +149,44 @@ $: visibleEmails = (
 
   <div class="table">
     {#if mailboxOnly}
-      {#if visibleEmails.length === 0}
+      {#if paginatedEmails.length === 0}
         <div class="empty">No emails in this filter.</div>
       {:else}
-        {#each visibleEmails as email (email.id)}
-          <a href={`${rowHrefPrefix}/${email.id}`} class={`mailbox-row ${email.isRead ? 'read' : 'unread'}`}>
-            <div class="mailbox-left">
-              <Icon name={email.isStarred ? 'star' : 'star_outline'} size={18} />
-              <span class="avatar">{initials(email.sender)}</span>
-              <span class="sender">{email.sender}</span>
+        {#each paginatedEmails as email (email.id)}
+          {#if activeTab === 'trash'}
+            <div class="mailbox-row mailbox-trash-row">
+              <div class="mailbox-left">
+                <Icon name={email.isStarred ? 'star' : 'star_outline'} size={18} />
+                <span class="avatar">{initials(email.sender)}</span>
+                <span class="sender">{email.sender}</span>
+              </div>
+              <div class="summary">
+                <span class="subject">{email.subject}</span>
+                <span class="snippet">{email.snippet}</span>
+              </div>
+              <div class="time">{timeLabel(email.receivedAt)}</div>
+              <button type="button" class="restore-btn" on:click={() => restoreEmail(email.id)} disabled={restorePending === email.id}>
+                {restorePending === email.id ? 'Restoring...' : 'Restore'}
+              </button>
             </div>
-            <div class="summary">
-              <span class="subject">{email.subject}</span>
-              <span class="snippet">{email.snippet}</span>
-            </div>
-            <div class="time">{timeLabel(email.receivedAt)}</div>
-          </a>
+          {:else}
+            <a href={`${rowHrefPrefix}/${email.id}`} class={`mailbox-row ${email.isRead ? 'read' : 'unread'}`}>
+              <div class="mailbox-left">
+                <Icon name={email.isStarred ? 'star' : 'star_outline'} size={18} />
+                <span class="avatar">{initials(email.sender)}</span>
+                <span class="sender">{email.sender}</span>
+              </div>
+              <div class="summary">
+                <span class="subject">{email.subject}</span>
+                <span class="snippet">{email.snippet}</span>
+              </div>
+              <div class="time">{timeLabel(email.receivedAt)}</div>
+            </a>
+          {/if}
         {/each}
       {/if}
     {:else}
-      {#each visibleEmails as email (email.id)}
+      {#each paginatedEmails as email (email.id)}
         <a href={`${rowHrefPrefix}/${email.id}`} class={`row ${email.isRead ? 'read' : 'unread'}`}>
           <div class="select"><Checkbox /></div>
           <div class="star">
@@ -212,6 +289,7 @@ $: visibleEmails = (
     grid-template-columns: minmax(200px, 320px) minmax(220px, 1fr) auto;
     gap: var(--space-3);
     align-items: center;
+    grid-template-columns: minmax(200px, 320px) minmax(220px, 1fr) auto;
     border: 1px solid color-mix(in srgb, var(--color-outline), transparent 76%);
     border-radius: var(--radius-md);
     padding: 0.72rem 0.85rem;
@@ -221,6 +299,10 @@ $: visibleEmails = (
   .mailbox-row:hover {
     border-color: color-mix(in srgb, var(--color-primary-500), transparent 65%);
     background: color-mix(in srgb, var(--color-primary-500), transparent 96%);
+  }
+
+  .mailbox-trash-row {
+    grid-template-columns: minmax(200px, 320px) minmax(220px, 1fr) auto auto;
   }
 
   .mailbox-left {
@@ -341,7 +423,33 @@ $: visibleEmails = (
       flex: 0 0 auto;
     }
 
-    .pager {
+  .pager button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .pager-label {
+    align-self: center;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+  }
+
+  .restore-btn {
+    border: 1px solid color-mix(in srgb, var(--color-primary-500), transparent 60%);
+    background: transparent;
+    color: var(--color-primary-500);
+    border-radius: 0.5rem;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .restore-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .pager {
       margin-left: auto;
     }
 

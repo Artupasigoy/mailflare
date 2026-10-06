@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation';
-  import { sidebarCollapsed, darkMode } from '$lib/stores/ui.store';
+  import { adminDarkMode, sidebarCollapsed, toggleTheme } from '$lib/stores/ui.store';
   import SearchField from '$lib/components/molecules/SearchField.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
@@ -15,12 +15,28 @@
   export let showRefresh = true;
   export let showLogout = true;
   export let showThemeToggle = true;
+  /** Email mailbox yang sedang dilihat (halaman inbox/detail email user). */
+  export let mailboxEmail = '';
   export let variant: 'full' | 'minimal' = 'full';
 
   $: isMinimal = variant === 'minimal';
 
   let refreshing = false;
   let loggingOut = false;
+  let copied = false;
+
+  async function copyMailboxEmail() {
+    if (!mailboxEmail) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(mailboxEmail);
+    } catch {
+      // Abaikan jika clipboard tidak tersedia.
+    }
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
+  }
 
   async function handleRefresh() {
     if (refreshing || loggingOut) {
@@ -49,7 +65,7 @@
   }
 
   function handleThemeToggle() {
-    darkMode.update((value) => !value);
+    toggleTheme('admin');
   }
 </script>
 
@@ -86,10 +102,22 @@
         <button
           class="icon-action"
           type="button"
-          aria-label={$darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={$adminDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           on:click={handleThemeToggle}
         >
-          <Icon name={$darkMode ? 'light_mode' : 'dark_mode'} size={18} />
+          <Icon name={$adminDarkMode ? 'light_mode' : 'dark_mode'} size={18} />
+        </button>
+      {/if}
+      {#if mailboxEmail}
+        <button
+          class="mailbox-chip"
+          type="button"
+          title={copied ? 'Email disalin' : 'Salin email'}
+          aria-label="Salin alamat email"
+          on:click={copyMailboxEmail}
+        >
+          <Icon name="content_copy" size={14} />
+          <span>{mailboxEmail}</span>
         </button>
       {/if}
       {#if showLogout}
@@ -99,13 +127,47 @@
         </Button>
       {/if}
     {/if}
-    {#if isMinimal}
-      <!-- theme toggle moved to sidebar bottom -->
+    {#if isMinimal && mailboxEmail}
+      <button
+        class="mailbox-chip"
+        type="button"
+        title={copied ? 'Email disalin' : 'Salin email'}
+        aria-label="Salin alamat email"
+        on:click={copyMailboxEmail}
+      >
+        <Icon name="content_copy" size={14} />
+        <span>{mailboxEmail}</span>
+      </button>
     {/if}
   </div>
 </header>
 
 <style>
+  .mailbox-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 20rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 60%);
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mailbox-chip:hover {
+    background: color-mix(in srgb, var(--color-text), transparent 92%);
+  }
+
+  .mailbox-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .topbar {
     position: sticky;
     top: 0;

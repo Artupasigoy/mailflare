@@ -1,8 +1,8 @@
 <script lang="ts">
   import { afterNavigate, goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import MailboxTopbar from '$lib/components/organisms/MailboxTopbar.svelte';
-  import InboxTable from '$lib/components/organisms/InboxTable.svelte';
+  import GmailShell from '$lib/components/organisms/GmailShell.svelte';
+  import GmailInbox from '$lib/components/organisms/GmailInbox.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import type { PageData } from './$types';
 
@@ -11,12 +11,11 @@
   let searchQuery = '';
 
   $: unreadCount = data.emails.filter((email) => !email.isRead && !email.isArchived).length;
-  $: starredCount = data.emails.filter((email) => email.isStarred && !email.isArchived).length;
-  $: archivedCount = data.archivedCount ?? 0;
-  $: inboxCount = Math.max(0, Number(data.currentUser?.totalEmails ?? data.emails.length) - archivedCount);
 
   $: activeQuery = data.search?.query ?? '';
   $: isSearching = data.search !== null;
+  $: rawView = $page.url.searchParams.get('view');
+  $: viewParam = (rawView === 'starred' ? 'starred' : rawView === 'trash' ? 'trash' : 'inbox') as 'inbox' | 'starred' | 'trash';
   $: displayedEmails = data.emails;
 
   afterNavigate(({ to }) => {
@@ -53,77 +52,32 @@
   }
 </script>
 
-<section class="inbox-only-main">
-  <MailboxTopbar
-    userLabel={data.currentUser.displayName}
-    bind:searchQuery
-    searchPlaceholder="Cari di subject, pengirim, atau body email..."
-    onSearch={handleSubmit}
-  />
-
-  <div class="content">
-    <div class="inbox-head">
-      <div class="title-wrap">
-        <h1>Inbox</h1>
-        <span class="badge">{unreadCount} New</span>
-      </div>
-      {#if isSearching}
-        <div class="search-indicator" role="status">
-          <Icon name="search" size={16} />
-          <span>
-            Hasil untuk <strong>"{activeQuery}"</strong> &middot;
-            {data.search?.resultCount ?? 0} email
-          </span>
-          <button type="button" class="clear-btn" on:click={handleClear} aria-label="Clear search">
-            <Icon name="close" size={16} />
-            <span>Reset</span>
-          </button>
-        </div>
-      {/if}
-    </div>
+<GmailShell>
+  <div class="content-wrap">
+    <GmailInbox
+      emails={displayedEmails}
+      trashEmails={data.trashEmails ?? []}
+      emailHrefPrefix="/me/emails"
+      apiHrefPrefix="/api/me/emails"
+      isSearching={isSearching}
+      resultCount={data.search?.resultCount ?? 0}
+      view={viewParam}
+      trashEmptyUrl="/api/me/trash/empty"
+    />
 
     {#if isSearching && displayedEmails.length === 0}
-      <div class="empty-search">
-        <Icon name="search_off" size={36} />
-        <h3>Tidak ada email cocok</h3>
-        <p class="text-muted">
-          Coba kata kunci lain. Pencarian saat ini memindai subject, pengirim, penerima,
-          snippet, dan body email.
-        </p>
-        <button type="button" class="reset-btn" on:click={handleClear}>
-          <Icon name="arrow_back" size={16} />
-          <span>Kembali ke inbox</span>
-        </button>
-      </div>
-    {:else}
-      <InboxTable
-        userId={data.userId}
-        emails={displayedEmails}
-        emailHrefPrefix="/me/emails"
-        mailboxOnly={true}
-      />
-    {/if}
-  </div>
-
-  <footer class="stats-footer">
-    <div class="stats-grid">
-      <div class="stat">
-        <span>Total Inbox</span>
-        <strong>{inboxCount}</strong>
-      </div>
-      <div class="separator" aria-hidden="true"></div>
-      <div class="stat">
-        <span>Total Starred</span>
-        <strong>{starredCount}</strong>
-      </div>
-      <div class="separator" aria-hidden="true"></div>
-      <div class="stat">
-        <span>Total Archived</span>
-        <strong>{archivedCount}</strong>
-      </div>
+    <div class="empty-search">
+      <Icon name="search_off" size={36} />
+      <h3>Tidak ada email cocok</h3>
+      <p class="text-muted">Pencarian memindai subject, pengirim, penerima, snippet, dan body email.</p>
+      <button type="button" class="reset-btn" on:click={handleClear}>
+        <Icon name="arrow_back" size={16} />
+        <span>Kembali ke inbox</span>
+      </button>
     </div>
-  </footer>
-</section>
+  {/if}
+  </div>
+</GmailShell>
 
 <style>
   .content {

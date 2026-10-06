@@ -41,6 +41,51 @@
   --mobile-nav-height: 5rem;
 }
 
+/* ── Gmail-style tokens (dipakai GmailShell / GmailInbox / GmailEmail) ── */
+:root {
+  --gm-bg: #ffffff;
+  --gm-surface-2: #f8fafd;
+  --gm-surface-3: #eef1f6;
+  --gm-text: #202124;
+  --gm-muted: #5f6368;
+  --gm-border: #e8eaed;
+  --gm-line: #f1f3f4;
+  --gm-hover: #f8fafd;
+  --gm-selected: #eef4fd;
+  --gm-blue: #1a73e8;
+  --gm-blue-soft: #c2e7ff;
+  --gm-blue-strong: #041e49;
+  --gm-green: #0f9d58;
+  --gm-star-off: #bdc1c6;
+  --gm-star-hover: #80868b;
+  --gm-danger: #d93025;
+  --gm-danger-soft: #fce8e6;
+  --gm-body-bg: #f6f6f6;
+  --gm-scrim: rgba(32, 33, 36, 0.4);
+}
+
+:root[data-theme='dark'] {
+  --gm-bg: #1c1e24;
+  --gm-surface-2: #23262e;
+  --gm-surface-3: #2a2e37;
+  --gm-text: #e8eaed;
+  --gm-muted: #9aa0a6;
+  --gm-border: #3a3d4a;
+  --gm-line: #2f333c;
+  --gm-hover: #262a32;
+  --gm-selected: #26364f;
+  --gm-blue: #8ab4f8;
+  --gm-blue-soft: #29405f;
+  --gm-blue-strong: #e8eaed;
+  --gm-green: #81c995;
+  --gm-star-off: #5f6368;
+  --gm-star-hover: #80868b;
+  --gm-danger: #f28b82;
+  --gm-danger-soft: #3b2321;
+  --gm-body-bg: #121317;
+  --gm-scrim: rgba(0, 0, 0, 0.6);
+}
+
 :root[data-theme='dark'] {
   --color-primary-500: #427cff;
   --color-primary-700: #6896ff;

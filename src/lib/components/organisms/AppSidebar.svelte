@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { sidebarCollapsed, darkMode } from '$lib/stores/ui.store';
+  import { sidebarCollapsed, adminDarkMode, toggleTheme } from '$lib/stores/ui.store';
   import BrandLockup from '$lib/components/molecules/BrandLockup.svelte';
   import SidebarNavItem from '$lib/components/molecules/SidebarNavItem.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
@@ -120,13 +120,13 @@
       <button
         class="sidebar-action"
         type="button"
-        aria-label={compact ? 'Switch theme' : ($darkMode ? 'Light mode' : 'Dark mode')}
-        on:click={() => darkMode.update(v => !v)}
+        aria-label={compact ? 'Switch theme' : ($adminDarkMode ? 'Light mode' : 'Dark mode')}
+        on:click={() => toggleTheme('admin')}
         title={compact ? 'Switch theme' : ''}
       >
-        <Icon name={$darkMode ? 'light_mode' : 'dark_mode'} size={18} />
+        <Icon name={$adminDarkMode ? 'light_mode' : 'dark_mode'} size={18} />
         {#if !compact}
-          <span>{$darkMode ? 'Light Mode' : 'Dark Mode'}</span>
+          <span>{$adminDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
         {/if}
       </button>
 

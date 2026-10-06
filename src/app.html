@@ -12,9 +12,18 @@
     <script>
       (function() {
         try {
-          var isDark = localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          // Anti-FOUC: terapkan tema SEBELUM halaman digambar, sesuai scope terakhir.
+          // Admin & member punya tema terpisah (theme_admin / theme_member).
+          // Halaman member selalu terang; hanya admin yang bisa gelap.
+          var scope = localStorage.getItem('theme_last_scope') === 'admin' ? 'admin' : 'member';
+          var isDark = scope === 'admin' && localStorage.getItem('theme_admin') === 'dark';
           if (isDark) {
             document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.backgroundColor = '#0e0f12';
+            document.documentElement.style.color = '#ededef';
+          } else {
+            document.documentElement.removeAttribute('data-theme');
+            document.documentElement.style.backgroundColor = '#ffffff';
           }
         } catch (e) {}
       })();

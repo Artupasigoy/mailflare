@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { revokeSessionByToken, SESSION_COOKIE_NAME } from '$lib/server/session';
 
@@ -14,5 +14,10 @@ async function clearSession(event: Parameters<RequestHandler>[0]) {
   return json({ ok: true });
 }
 
-export const GET: RequestHandler = async (event) => clearSession(event);
+export const GET: RequestHandler = async (event) => {
+  await clearSession(event);
+  // Dijalankan langsung via address bar / link -> langsung ke halaman login.
+  throw redirect(303, '/auth/login');
+};
+
 export const POST: RequestHandler = async (event) => clearSession(event);

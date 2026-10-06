@@ -29,7 +29,13 @@ export const PATCH: RequestHandler = async ({ locals, platform, params, request 
 
   const payload = (await request.json()) as { action?: string };
   const action = payload.action?.trim().toLowerCase() as EmailQuickAction | undefined;
-  if (action !== 'star' && action !== 'archive' && action !== 'delete') {
+  if (
+    action !== 'star' &&
+    action !== 'delete' &&
+    action !== 'untrash' &&
+    action !== 'read' &&
+    action !== 'unread'
+  ) {
     return json({ error: 'Unsupported action' }, { status: 400 });
   }
 
@@ -43,9 +49,7 @@ export const PATCH: RequestHandler = async ({ locals, platform, params, request 
       return json({ ok: true, action, alreadyDeleted: true, email: result.email });
     }
 
-    if (!result.updated && result.reason === 'already_archived') {
-      return json({ ok: true, action, alreadyArchived: true, email: result.email });
-    }
+    
 
     return json({ ok: true, action, email: result.email });
   } catch (error) {

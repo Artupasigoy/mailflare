@@ -3,7 +3,8 @@
   import AppSidebar from '$lib/components/organisms/AppSidebar.svelte';
   import AppTopbar from '$lib/components/organisms/AppTopbar.svelte';
   import MailboxTopbar from '$lib/components/organisms/MailboxTopbar.svelte';
-  import CardSurface from '$lib/components/atoms/CardSurface.svelte';
+  import GmailEmail from '$lib/components/organisms/GmailEmail.svelte';
+  import GmailTabs from '$lib/components/organisms/GmailTabs.svelte';
   import Badge from '$lib/components/atoms/Badge.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
@@ -15,7 +16,7 @@
   export let data: PageData;
   $: adminEmail = $page.data.sessionEmail ?? null;
 
-  type EmailQuickAction = 'star' | 'archive' | 'delete';
+  type EmailQuickAction = 'star' | 'delete';
 
   let email = data.email;
   let activeEmailId = data.email.id;
@@ -35,7 +36,14 @@
   }
 
   $: receivedLabel = email.receivedAt ? new Date(email.receivedAt).toLocaleString() : '-';
-  $: inboxHref = data.inboxOnly ? '/me/inbox' : `/users/${data.userId}/inbox`;
+  type MailboxView = 'inbox' | 'starred' | 'trash';
+  $: rawView = $page.url.searchParams.get('view');
+  $: view = (rawView === 'starred' ? 'starred' : rawView === 'trash' ? 'trash' : 'inbox') as MailboxView;
+  $: inboxHrefBase = data.inboxOnly ? '/me/inbox' : `/users/${data.userId}/inbox`;
+  $: inboxHref =
+    data.inboxOnly || view === 'inbox'
+      ? inboxHrefBase
+      : `${inboxHrefBase}?view=${view}`;
   $: actionApiBase = data.inboxOnly ? '/api/me/emails' : `/api/users/${data.userId}/emails`;
 
   async function runQuickAction(action: EmailQuickAction) {
@@ -91,88 +99,12 @@
       userLabel={data.currentUser?.displayName ?? data.currentUser?.email ?? data.userId}
       showSearch={false}
       showRefresh={false}
-    >
-      <svelte:fragment slot="actions">
-        <Button variant="secondary" href={inboxHref}>
-          <Icon name="arrow_back" size={18} />
-          Back to Inbox
-        </Button>
-      </svelte:fragment>
-    </MailboxTopbar>
+    />
     <div class="content">
-      <CardSurface>
-        <div class="head">
-          <div>
-            <h2>{email.subject}</h2>
-            <p class="text-muted">ID: {email.id}</p>
-          </div>
-          <div class="top-actions">
-            <div class="badges">
-              <Badge tone={email.isRead ? 'primary' : 'warning'}>{email.isRead ? 'Read' : 'Unread'}</Badge>
-              {#if isStarred}
-                <Badge tone="success">Starred</Badge>
-              {/if}
-            </div>
-            <div class="icon-actions">
-              <button
-                class="icon-action"
-                type="button"
-                aria-label={isStarred ? 'Remove star' : 'Add star'}
-                title={isStarred ? 'Remove star' : 'Add star'}
-                on:click={() => runQuickAction('star')}
-                disabled={actionPending}
-              >
-                <Icon name={isStarred ? 'star' : 'star_border'} size={18} />
-              </button>
-              <button
-                class="icon-action"
-                type="button"
-                aria-label="Archive email"
-                title="Archive"
-                on:click={() => runQuickAction('archive')}
-                disabled={actionPending}
-              >
-                <Icon name="archive" size={18} />
-              </button>
-              <button
-                class="icon-action danger"
-                type="button"
-                aria-label="Delete email"
-                title="Delete"
-                on:click={() => runQuickAction('delete')}
-                disabled={actionPending}
-              >
-                <Icon name="delete" size={18} />
-              </button>
-            </div>
-            {#if actionError}
-              <p class="action-feedback error">{actionError}</p>
-            {:else if actionMessage}
-              <p class="action-feedback">{actionMessage}</p>
-            {/if}
-          </div>
-        </div>
-
-        <div class="meta-grid">
-          <div>
-            <div class="meta-label">From</div>
-            <div class="meta-value">{email.sender}</div>
-          </div>
-          <div>
-            <div class="meta-label">To</div>
-            <div class="meta-value">{email.recipient}</div>
-          </div>
-          <div>
-            <div class="meta-label">Received</div>
-            <div class="meta-value">{receivedLabel}</div>
-          </div>
-        </div>
-
-        <div class="body">
-          <h3>Body</h3>
-          <EmailBodyViewer bodyHtml={email.bodyHtml} bodyText={email.bodyText} snippet={email.snippet} />
-        </div>
-      </CardSurface>
+      <div class="tab-wrap">
+        <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} />
+      </div>
+      <GmailEmail email={email} apiBase="/api/me/emails" backHref={inboxHref} />
     </div>
   </section>
 {:else}
@@ -184,94 +116,26 @@
         variant="minimal"
         showRefresh={false}
         showLogout={false}
-      >
-      </AppTopbar>
+        mailboxEmail={data.currentUser?.email ?? data.userId}
+      />
       <div class="content">
-        <div class="detail-toolbar">
-          <Button variant="secondary" href={inboxHref}>
-            <Icon name="arrow_back" size={18} />
-            Back to Inbox
-          </Button>
+        <div class="tab-wrap">
+          <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} />
         </div>
-        <CardSurface>
-          <div class="head">
-            <div>
-              <h2>{email.subject}</h2>
-              <p class="text-muted">ID: {email.id}</p>
-            </div>
-            <div class="top-actions">
-              <div class="badges">
-                <Badge tone={email.isRead ? 'primary' : 'warning'}>{email.isRead ? 'Read' : 'Unread'}</Badge>
-                {#if isStarred}
-                  <Badge tone="success">Starred</Badge>
-                {/if}
-              </div>
-              <div class="icon-actions">
-                <button
-                  class="icon-action"
-                  type="button"
-                  aria-label={isStarred ? 'Remove star' : 'Add star'}
-                  title={isStarred ? 'Remove star' : 'Add star'}
-                  on:click={() => runQuickAction('star')}
-                  disabled={actionPending}
-                >
-                  <Icon name={isStarred ? 'star' : 'star_border'} size={18} />
-                </button>
-                <button
-                  class="icon-action"
-                  type="button"
-                  aria-label="Archive email"
-                  title="Archive"
-                  on:click={() => runQuickAction('archive')}
-                  disabled={actionPending}
-                >
-                  <Icon name="archive" size={18} />
-                </button>
-                <button
-                  class="icon-action danger"
-                  type="button"
-                  aria-label="Delete email"
-                  title="Delete"
-                  on:click={() => runQuickAction('delete')}
-                  disabled={actionPending}
-                >
-                  <Icon name="delete" size={18} />
-                </button>
-              </div>
-              {#if actionError}
-                <p class="action-feedback error">{actionError}</p>
-              {:else if actionMessage}
-                <p class="action-feedback">{actionMessage}</p>
-              {/if}
-            </div>
-          </div>
-
-          <div class="meta-grid">
-            <div>
-              <div class="meta-label">From</div>
-              <div class="meta-value">{email.sender}</div>
-            </div>
-            <div>
-              <div class="meta-label">To</div>
-              <div class="meta-value">{email.recipient}</div>
-            </div>
-            <div>
-              <div class="meta-label">Received</div>
-              <div class="meta-value">{receivedLabel}</div>
-            </div>
-          </div>
-
-          <div class="body">
-            <h3>Body</h3>
-            <EmailBodyViewer bodyHtml={email.bodyHtml} bodyText={email.bodyText} snippet={email.snippet} />
-          </div>
-        </CardSurface>
+        <GmailEmail email={email} apiBase={actionApiBase} backHref={inboxHref} />
       </div>
     </section>
   </div>
 {/if}
 
 <style>
+  .tab-wrap {
+    background: var(--gm-bg);
+    border: 1px solid var(--gm-border);
+    border-radius: 12px;
+    padding: 0 0.35rem;
+  }
+
   .content {
     padding: var(--space-5);
   }
@@ -377,6 +241,27 @@
 
   .body {
     margin-top: var(--space-4);
+  }
+
+  .body-actions {
+    margin-bottom: 0.75rem;
+  }
+
+  .download-btn {
+    display: inline-block;
+    border: 1px solid color-mix(in srgb, var(--color-primary-500), transparent 60%);
+    background: transparent;
+    color: var(--color-primary-500);
+    border-radius: 0.5rem;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    text-decoration: none;
+  }
+
+  .attachment-count {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin: 0 0 0.5rem;
   }
 
   h3 {

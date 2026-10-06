@@ -1,11 +1,17 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getUserArchivedEmailCountFromDb, getUserInboxFromDb } from '$lib/server/db';
+import { getUserInboxFromDb } from '$lib/server/db';
 
-export const GET: RequestHandler = async ({ platform, params }) => {
-  const [emails, archivedCount] = await Promise.all([
-    getUserInboxFromDb(platform?.env?.DB, params.userId),
-    getUserArchivedEmailCountFromDb(platform?.env?.DB, params.userId)
-  ]);
-  return json({ userId: params.userId, emails, archivedCount });
+export const GET: RequestHandler = async ({ locals, platform, params }) => {
+  if (!locals.authenticated) {
+    return json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const isOwner = locals.sessionRole === 'owner';
+  if (!isOwner && locals.sessionUserId !== params.userId) {
+    return json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const emails = await getUserInboxFromDb(platform?.env?.DB, params.userId);
+  return json({ userId: params.userId, emails });
 };

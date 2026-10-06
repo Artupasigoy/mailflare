@@ -408,10 +408,38 @@ async function __mailflareHandleInboundEmail(message, env, ctx, worker) {
   }
 }
 
+const __mailflareTrashRetentionDays = 30;
+
+async function __mailflarePurgeExpiredTrash(env) {
+  try {
+    const db = env && env.DB;
+    if (!db || typeof db.prepare !== 'function') return 0;
+    const result = await db
+      .prepare(
+        \`DELETE FROM emails
+         WHERE deleted_at IS NOT NULL
+           AND deleted_at < datetime('now', ?)\`
+      )
+      .bind(\`-\${__mailflareTrashRetentionDays} days\`)
+      .run();
+    const changes = Number(result && result.meta && result.meta.changes ? result.meta.changes : 0);
+    if (changes > 0) {
+      console.log(\`[mailflare-trash] purged \${changes} email(s) older than \${__mailflareTrashRetentionDays} days\`);
+    }
+    return changes;
+  } catch (error) {
+    console.error('[mailflare-trash] purge failed', error && error.message ? error.message : error);
+    return 0;
+  }
+}
+
 const worker_with_email = {
   ...worker_default,
   async email(message, env, ctx) {
     ctx.waitUntil(__mailflareHandleInboundEmail(message, env, ctx, worker_default));
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(__mailflarePurgeExpiredTrash(env));
   }
 };
 
