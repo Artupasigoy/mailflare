@@ -3,6 +3,7 @@
   import { page, navigating } from '$app/stores';
   import MobileBottomNav from '$lib/components/organisms/MobileBottomNav.svelte';
   import ToastHost from '$lib/components/atoms/ToastHost.svelte';
+  import ConfirmDialogHost from '$lib/components/atoms/ConfirmDialogHost.svelte';
   import { applyThemeForScope, type ThemeScope } from '$lib/stores/ui.store';
   import type { LayoutData } from './$types';
 
@@ -29,6 +30,7 @@
 {/if}
 
 <ToastHost />
+<ConfirmDialogHost />
 
 <style>
   .app-frame {

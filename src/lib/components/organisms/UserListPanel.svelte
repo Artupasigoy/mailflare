@@ -7,6 +7,7 @@
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import InputText from '$lib/components/atoms/InputText.svelte';
+  import InputTextarea from '$lib/components/atoms/InputTextarea.svelte';
   import Pager from '$lib/components/molecules/Pager.svelte';
   import { toastStore } from '$lib/stores/toast.store';
 
@@ -796,13 +797,14 @@
         <form class="modal-body modal-form" on:submit|preventDefault={handleBulkCreate}>
         <div class="field">
           <label for="bulk-usernames">Daftar username</label>
-          <textarea
-            id="bulk-usernames"
-            class="bulk-textarea"
-            rows="8"
-            bind:value={bulkUsernames}
-            placeholder={'andi\nbudi\nsiti'}
-          ></textarea>
+          <div class="input-shell">
+            <InputTextarea
+              id="bulk-usernames"
+              rows={8}
+              bind:value={bulkUsernames}
+              placeholder={'andi\nbudi\nsiti'}
+            />
+          </div>
         </div>
 
         <div class="field">
@@ -1083,42 +1085,18 @@
     white-space: nowrap;
   }
 
-  .bulk-textarea {
+  .bulk-select {
     width: 100%;
     border: 0;
     border-radius: 0.75rem;
     background: color-mix(in srgb, var(--color-surface-low), white 35%);
     padding: 0.9rem 0.9rem;
     font: inherit;
-    font-size: 0.85rem;
-    color: var(--color-text);
-    resize: vertical;
-    outline: none;
-  }
-
-  .bulk-textarea:focus {
-    background: var(--color-surface-card);
-  }
-
-  .bulk-textarea::placeholder {
-    color: var(--color-text-muted);
-    opacity: 0.7;
-    font-weight: 400;
-  }
-
-  .bulk-select {
-    width: 100%;
-    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 55%);
-    border-radius: 0.75rem;
-    background: color-mix(in srgb, var(--color-surface-low), white 35%);
-    padding: 0.75rem 0.875rem;
-    font: inherit;
     color: var(--color-text);
     outline: none;
   }
 
   .bulk-select:focus {
-    border-color: color-mix(in srgb, var(--color-primary-500), var(--color-surface-card) 45%);
     background: var(--color-surface-card);
   }
 
