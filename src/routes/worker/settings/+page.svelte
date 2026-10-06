@@ -2,6 +2,7 @@
   import AppSidebar from '$lib/components/organisms/AppSidebar.svelte';
   import AppTopbar from '$lib/components/organisms/AppTopbar.svelte';
   import WorkerSettingsForm from '$lib/components/organisms/WorkerSettingsForm.svelte';
+  import BackupRestore from '$lib/components/organisms/BackupRestore.svelte';
   import { page } from '$app/stores';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
@@ -19,6 +20,7 @@
       showLogout={false} breadcrumb="mailflare / worker / settings" showSearch={false} />
     <div class="content">
       <WorkerSettingsForm data={data.workerSettings} />
+      <BackupRestore />
     </div>
   </section>
 </div>
@@ -26,6 +28,8 @@
 <style>
   .content {
     padding: var(--space-5);
+    display: grid;
+    gap: var(--space-5);
   }
 
   @media (max-width: 960px) {

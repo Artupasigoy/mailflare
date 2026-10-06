@@ -89,7 +89,7 @@
           <Icon name="restore" size={18} />
         </button>
       {:else}
-        <button class="tb-btn" type="button" title="Pindahkan ke Sampah" aria-label="Pindahkan ke Sampah" on:click={() => act('delete')} disabled={pending}>
+        <button class="tb-btn danger" type="button" title="Pindahkan ke Sampah" aria-label="Pindahkan ke Sampah" on:click={() => act('delete')} disabled={pending}>
           <Icon name="delete" size={18} />
         </button>
       {/if}
@@ -199,6 +199,10 @@
 
   .tb-btn.starred {
     color: var(--gm-blue);
+  }
+
+  .tb-btn.danger {
+    color: var(--gm-danger);
   }
 
   .star-svg {

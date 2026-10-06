@@ -152,7 +152,6 @@
                 snippet={email.snippet}
                 receivedAt={timeLabel(email.receivedAt)}
                 isRead={email.isRead}
-                isStarred={email.isStarred}
                 recipient={email.recipient}
                 showRecipient={true}
               >

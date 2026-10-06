@@ -5,6 +5,8 @@
   import UserListPanel from '$lib/components/organisms/UserListPanel.svelte';
   import SearchSortBar from '$lib/components/molecules/SearchSortBar.svelte';
   import StatusFilter from '$lib/components/molecules/StatusFilter.svelte';
+  import LabelFilter from '$lib/components/molecules/LabelFilter.svelte';
+  import LabelManagerModal from '$lib/components/organisms/LabelManagerModal.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import { page, navigating } from '$app/stores';
   import { afterNavigate } from '$app/navigation';
@@ -14,6 +16,7 @@
   export let data: PageData;
   $: adminEmail = $page.data.sessionEmail ?? null;
 
+  let labelManagerOpen = false;
   let searchQuery = data.search ?? '';
 
   // Pagination & pencarian ditangani server (hemat kuota: tidak ambil semua user).
@@ -76,6 +79,18 @@
     void goto(`/users${queryString ? `?${queryString}` : ''}`, { keepFocus: true, noScroll: true });
   }
 
+  function applyLabel(next: string) {
+    const params = new URLSearchParams($page.url.search);
+    if (next) {
+      params.set('label', next);
+    } else {
+      params.delete('label');
+    }
+    params.delete('page');
+    const queryString = params.toString();
+    void goto(`/users${queryString ? `?${queryString}` : ''}`, { keepFocus: true, noScroll: true });
+  }
+
   function applySort(next: string) {
     const params = new URLSearchParams($page.url.search);
     const defaultSort = (data.status ?? 'all') === 'deleted' ? 'deleted_recent' : 'newest';
@@ -101,6 +116,10 @@
   }
 
   async function handleUserChanged() {
+    await invalidateAll();
+  }
+
+  async function handleLabelsChanged() {
     await invalidateAll();
   }
 </script>
@@ -130,13 +149,21 @@
 
       <div class="status-row">
         <StatusFilter value={data.status ?? 'all'} options={STATUS_OPTIONS} onChange={applyStatus} />
-        {#if isTrashView}
+        <LabelFilter
+          labels={data.labels ?? []}
+          value={data.labelId ?? ''}
+          onChange={applyLabel}
+          onManage={() => (labelManagerOpen = true)}
+        />
+      </div>
+      {#if isTrashView}
+        <div class="trash-row">
           <span class="trash-hint">
             <Icon name="info" size={15} />
             User di Sampah tidak bisa login. Emailnya tetap tersimpan dan bisa dibuka dengan klik email user. User di Sampah bisa dipulihkan, atau dihapus permanen (sendiri/semua) — dan otomatis terhapus setelah 30 hari.
           </span>
-        {/if}
-      </div>
+        </div>
+      {/if}
       <UserListPanel
         users={filteredUsers}
         total={data.total ?? 0}
@@ -146,10 +173,18 @@
         on:usercreated={handleUserCreated}
         on:userchanged={handleUserChanged}
         trashView={isTrashView}
+        labels={data.labels ?? []}
       />
     </div>
   </section>
 </div>
+
+<LabelManagerModal
+  open={labelManagerOpen}
+  labels={data.labels ?? []}
+  on:close={() => (labelManagerOpen = false)}
+  on:changed={handleLabelsChanged}
+/>
 
 <style>
   .status-row {
@@ -157,6 +192,10 @@
     align-items: center;
     gap: var(--space-3);
     flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+  }
+
+  .trash-row {
     margin-bottom: var(--space-3);
   }
 

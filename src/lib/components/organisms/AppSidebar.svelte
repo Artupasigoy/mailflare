@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { sidebarCollapsed, adminDarkMode, toggleTheme } from '$lib/stores/ui.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
   import BrandLockup from '$lib/components/molecules/BrandLockup.svelte';
   import SidebarNavItem from '$lib/components/molecules/SidebarNavItem.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
@@ -23,6 +24,7 @@
 
   async function handleLogout() {
     if (loggingOut) return;
+    if (!(await confirmDialog({ title: 'Keluar', message: 'Anda yakin ingin keluar dari akun ini?', confirmLabel: 'Keluar', danger: true }))) return;
     loggingOut = true;
     try {
       await fetch('/api/auth/logout');
@@ -63,8 +65,8 @@
 
   <nav class="nav">
     <SidebarNavItem href="/dashboard" icon="dashboard" label="Dashboard" active={active === 'dashboard'} compact={compact} />
-    <SidebarNavItem href="/users/emails" icon="move_to_inbox" label="Semua Email" active={active === 'emails'} compact={compact} />
     <SidebarNavItem href="/users" icon="group" label="User List" active={active === 'users'} compact={compact} />
+    <SidebarNavItem href="/users/emails" icon="move_to_inbox" label="Semua Email" active={active === 'emails'} compact={compact} />
     <SidebarNavItem href="/worker/settings" icon="settings_input_component" label="Worker Settings" active={active === 'worker'} compact={compact} />
   </nav>
 

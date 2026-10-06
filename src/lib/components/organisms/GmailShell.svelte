@@ -3,6 +3,7 @@
   import { goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/stores';
   import Icon from '$lib/components/atoms/Icon.svelte';
+  import { confirmDialog } from '$lib/stores/confirm.store';
 
   let query = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('q') ?? '';
   let menuOpen = false;
@@ -52,8 +53,11 @@
   }
 </script>
 
-<div class="shell" class:side-collapsed={!sidebarOpen} role="presentation" on:click={() => (menuOpen = false)} on:keydown={() => {}}>
-  <header class="topbar" on:click|stopPropagation on:keydown={() => {}}>
+<div class="shell" class:side-collapsed={!sidebarOpen}>
+  {#if menuOpen}
+    <button class="menu-scrim" type="button" aria-label="Tutup menu akun" on:click={() => (menuOpen = false)}></button>
+  {/if}
+  <header class="topbar">
     <button class="icon-btn" type="button" aria-label="Buka/tutup menu" title="Menu" on:click={() => (sidebarOpen = !sidebarOpen)}>
       <Icon name="menu" size={20} />
     </button>
@@ -76,7 +80,7 @@
           class="avatar"
           type="button"
           aria-label="Akun"
-          on:click|stopPropagation={() => (menuOpen = !menuOpen)}
+          on:click={() => (menuOpen = !menuOpen)}
         >{initials()}</button>
         {#if menuOpen}
           <div class="menu">
@@ -88,7 +92,8 @@
               class="menu-item"
               type="button"
               disabled={loggingOut}
-              on:click|stopPropagation={async () => {
+              on:click={async () => {
+                if (!(await confirmDialog({ title: 'Keluar', message: 'Anda yakin ingin keluar dari akun ini?', confirmLabel: 'Keluar', danger: true }))) return;
                 loggingOut = true;
                 try {
                   await fetch('/api/auth/logout');
@@ -141,6 +146,14 @@
     font-family: Arial, Helvetica, sans-serif;
   }
 
+  .menu-scrim {
+    position: fixed;
+    inset: 0;
+    border: 0;
+    background: transparent;
+    z-index: 19;
+  }
+
   .topbar {
     position: sticky;
     top: 0;
@@ -181,10 +194,7 @@
   .logo-mark {
     font-size: 1.6rem;
     font-weight: 700;
-    background-image: linear-gradient(90deg, #ea4335 0 25%, #fbbc04 25% 50%, #4285f4 50% 75%, #34a853 75% 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: var(--gm-blue);
   }
 
   .logo-text {

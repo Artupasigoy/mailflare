@@ -4,7 +4,9 @@ import type {
   DashboardWorkerStatus,
   EmailDetailDto,
   EmailDto,
-  UserDto
+  LabelDto,
+  UserDto,
+  UserLabelDto
 } from '$lib/types/dto';
 import type { WorkerSettingsPageDto } from '$lib/server/services/worker-settings.service';
 import PostalMime from 'postal-mime';
@@ -107,7 +109,45 @@ async function hasTelegramEnabledColumn(db: D1Database): Promise<boolean> {
 }
 
 function telegramColumnFragment(hasColumn: boolean): string {
-  return hasColumn ? 'u.telegram_enabled,' : '1 AS telegram_enabled,';
+  return hasColumn ? 'u.telegram_enabled,' : '0 AS telegram_enabled,';
+}
+
+const labelVisibleColumnCache = new WeakMap<D1Database, boolean>();
+
+async function hasLabelVisibleColumn(db: D1Database): Promise<boolean> {
+  const cached = labelVisibleColumnCache.get(db);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let has = false;
+  try {
+    const result = await db.prepare('PRAGMA table_info(labels)').all<{ name: string }>();
+    const columns = (result.results ?? []).map((r) => r.name);
+    has = columns.includes('visible');
+  } catch {
+    has = false;
+  }
+  labelVisibleColumnCache.set(db, has);
+  return has;
+}
+
+function labelVisibleFragment(hasColumn: boolean, alias: string): string {
+  return hasColumn ? `${alias}.visible` : '1';
+}
+
+export async function ensureLabelVisibleColumn(db: D1Database | undefined): Promise<void> {
+  if (!db) {
+    return;
+  }
+  try {
+    const has = await hasLabelVisibleColumn(db);
+    if (!has) {
+      await db.prepare('ALTER TABLE labels ADD COLUMN visible INTEGER NOT NULL DEFAULT 1').run();
+      labelVisibleColumnCache.set(db, true);
+    }
+  } catch {
+    // Kolom mungkin sudah ada (race) — abaikan.
+  }
 }
 
 export async function getDashboardOverview(db?: D1Database): Promise<DashboardDto> {
@@ -409,6 +449,8 @@ export interface GetUsersOptions {
   offset?: number;
   /** Filter status: semua, aktif, atau soft-deleted (Sampah User). */
   status?: UserStatusFilter;
+  /** Filter label: hanya user yang punya label ini. */
+  labelId?: string;
 }
 
 export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions = {}): Promise<UserDto[]> {
@@ -424,6 +466,8 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
 
   const hasCol = await hasTelegramEnabledColumn(db);
   const telegramCol = telegramColumnFragment(hasCol);
+  const hasLabelVisible = await hasLabelVisibleColumn(db);
+  const labelVisible = labelVisibleFragment(hasLabelVisible, 'l');
 
   // Satu query: agregat jumlah email + email terakhir per user (window function).
   const orderBy =
@@ -453,6 +497,10 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
     ? `AND (u.email LIKE ? ESCAPE '\\' OR COALESCE(u.display_name, u.email) LIKE ? ESCAPE '\\')`
     : '';
 
+  const labelClause = options.labelId
+    ? `AND EXISTS (SELECT 1 FROM user_labels ul2 WHERE ul2.user_id = u.id AND ul2.label_id = ?)`
+    : '';
+
   const query = `
     WITH owner AS (
       SELECT id AS owner_id
@@ -462,7 +510,8 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
     ),
     counts AS (
       SELECT user_id, COUNT(*) AS total_emails,
-             SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread_emails
+             SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread_emails,
+             COALESCE(SUM(raw_size), 0) AS storage_bytes
       FROM emails
       WHERE deleted_at IS NULL
       GROUP BY user_id
@@ -498,6 +547,13 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
       u.deleted_at,
       COALESCE(counts.total_emails, 0) AS total_emails,
       COALESCE(counts.unread_emails, 0) AS unread_emails,
+      COALESCE(counts.storage_bytes, 0) AS storage_bytes,
+      (
+        SELECT COALESCE(json_group_array(json_object('id', l.id, 'name', l.name, 'color', l.color, 'visible', ${labelVisible})), '[]')
+        FROM user_labels ul
+        JOIN labels l ON l.id = ul.label_id
+        WHERE ul.user_id = u.id
+      ) AS labels_json,
       latest.subject AS latest_subject,
       latest.sender AS latest_sender,
       latest.received_at AS latest_received
@@ -507,6 +563,7 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
     WHERE 1 = 1
     ${statusClause}
     ${searchClause}
+    ${labelClause}
     ORDER BY ${orderBy}
     LIMIT ? OFFSET ?
   `;
@@ -514,6 +571,9 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
   const bindings: Array<string | number> = [];
   if (searchTerm) {
     bindings.push(searchTerm, searchTerm);
+  }
+  if (options.labelId) {
+    bindings.push(options.labelId);
   }
   bindings.push(limit, offset);
 
@@ -527,6 +587,8 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
     telegramEnabled: Number(row.telegram_enabled ?? 1) === 1,
     totalEmails: Number(row.total_emails ?? 0),
     unreadEmails: Number(row.unread_emails ?? 0),
+    storageBytes: Number(row.storage_bytes ?? 0),
+    labels: parseLabelsJson(row.labels_json),
     deletedAt: row.deleted_at ? String(row.deleted_at) : null,
     latestEmail: row.latest_subject
       ? {
@@ -536,6 +598,25 @@ export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions =
         }
       : null
   }));
+}
+
+function parseLabelsJson(raw: unknown): UserLabelDto[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(String(raw)) as Array<{ id?: unknown; name?: unknown; color?: unknown; visible?: unknown }>;
+    return parsed
+      .filter((item) => item && item.id)
+      .map((item) => ({
+        id: String(item.id),
+        name: String(item.name ?? ''),
+        color: String(item.color ?? 'primary'),
+        visible: item.visible === undefined ? true : Number(item.visible) === 1 || item.visible === true
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export async function countUsersFromDb(db: D1Database | undefined, options: GetUsersOptions = {}): Promise<number> {
@@ -555,9 +636,18 @@ export async function countUsersFromDb(db: D1Database | undefined, options: GetU
       : status === 'deleted'
         ? '(u.password_hash IS NULL OR u.deleted_at IS NOT NULL)'
         : '';
-  const conditions = [searchSql, statusFilter].filter(Boolean).join(' AND ');
+  const labelSql = options.labelId
+    ? 'EXISTS (SELECT 1 FROM user_labels ul WHERE ul.user_id = u.id AND ul.label_id = ?)'
+    : '';
+  const conditions = [searchSql, labelSql, statusFilter].filter(Boolean).join(' AND ');
   const whereSql = conditions ? `WHERE ${conditions}` : '';
-  const bindings = searchTerm ? [searchTerm, searchTerm] : [];
+  const bindings: Array<string> = [];
+  if (searchTerm) {
+    bindings.push(searchTerm, searchTerm);
+  }
+  if (options.labelId) {
+    bindings.push(options.labelId);
+  }
 
   const row = await db
     .prepare(`SELECT COUNT(*) AS count FROM users u ${whereSql}`)
@@ -594,12 +684,16 @@ export async function countUsersBreakdownFromDb(
   const searchSql = searchTerm
     ? `(u.email LIKE ? ESCAPE '\\' OR COALESCE(u.display_name, u.email) LIKE ? ESCAPE '\\')`
     : '';
+  const labelSql = options.labelId
+    ? 'EXISTS (SELECT 1 FROM user_labels ul WHERE ul.user_id = u.id AND ul.label_id = ?)'
+    : '';
   const where = (cond: string) => {
-    const conds = [searchSql, cond].filter(Boolean).join(' AND ');
+    const conds = [searchSql, labelSql, cond].filter(Boolean).join(' AND ');
     return conds ? `WHERE ${conds}` : '';
   };
-  // 4 subquery × 2 placeholder search (atau 0 bila tanpa search)
-  const bindings = searchTerm ? Array(8).fill(searchTerm) : [];
+  // 4 subquery × (2 placeholder search + 1 placeholder label) — urut sesuai subquery.
+  const perSub = [...(searchTerm ? [searchTerm, searchTerm] : []), ...(options.labelId ? [options.labelId] : [])];
+  const bindings = [...perSub, ...perSub, ...perSub, ...perSub];
 
   const row = await db
     .prepare(
@@ -617,9 +711,9 @@ export async function countUsersBreakdownFromDb(
     // Fallback sederhana jika pengikatan binding bermasalah
     const [total, totalAll, totalActive, totalDeleted] = await Promise.all([
       countUsersFromDb(db, options),
-      countUsersFromDb(db, { search: options.search }),
-      countUsersFromDb(db, { search: options.search, status: 'active' }),
-      countUsersFromDb(db, { search: options.search, status: 'deleted' })
+      countUsersFromDb(db, { search: options.search, labelId: options.labelId }),
+      countUsersFromDb(db, { search: options.search, status: 'active', labelId: options.labelId }),
+      countUsersFromDb(db, { search: options.search, status: 'deleted', labelId: options.labelId })
     ]);
     return { total, totalAll, totalActive, totalDeleted };
   }
@@ -1962,7 +2056,7 @@ export async function createUserInDb(db: D1Database | undefined, input: CreateUs
     throw new Error('DB binding is required for create operation');
   }
 
-  const telegramEnabled = input.telegramEnabled ?? true;
+  const telegramEnabled = input.telegramEnabled ?? false;
   const telegramEnabledInt = telegramEnabled ? 1 : 0;
 
   const id = crypto.randomUUID();
@@ -2252,7 +2346,7 @@ export async function createUsersInDb(
 
     const id = crypto.randomUUID();
     const displayName = input.displayName?.trim() || email;
-    const telegramInt = (input.telegramEnabled ?? true) ? 1 : 0;
+    const telegramInt = (input.telegramEnabled ?? false) ? 1 : 0;
 
     if (hasCol) {
       statements.push(
@@ -2658,6 +2752,213 @@ export async function purgeExpiredSoftDeletedUsersInDb(
   const result = await db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).bind(...ids).run();
 
   return Number(result?.meta?.changes ?? 0);
+}
+
+// ── Labels (tag akun member) ───────────────────────────────────────────
+
+export async function getLabelsFromDb(db: D1Database | undefined): Promise<LabelDto[]> {
+  if (!db) {
+    return [];
+  }
+  await ensureLabelVisibleColumn(db);
+  const hasVisible = await hasLabelVisibleColumn(db);
+  const visibleCol = labelVisibleFragment(hasVisible, 'l');
+  const { results } = await db
+    .prepare(
+      `
+      SELECT l.id, l.name, l.color, ${visibleCol} AS visible,
+             (
+               SELECT COUNT(*) FROM user_labels ul WHERE ul.label_id = l.id
+             ) AS user_count
+      FROM labels l
+      ORDER BY LOWER(l.name) ASC
+    `
+    )
+    .all<Record<string, unknown>>();
+
+  return (results ?? []).map((row) => ({
+    id: String(row.id ?? ''),
+    name: String(row.name ?? ''),
+    color: String(row.color ?? 'primary'),
+    visible: Number(row.visible ?? 1) === 1,
+    userCount: Number(row.user_count ?? 0)
+  }));
+}
+
+export interface LabelInput {
+  name: string;
+  color?: string;
+  visible?: boolean;
+}
+
+export type LabelMutationReason = 'not_found' | 'already_exists' | 'invalid_name';
+
+export interface LabelMutationResult {
+  ok: boolean;
+  reason?: LabelMutationReason;
+  label?: LabelDto;
+}
+
+const LABEL_COLOR_VALUES = ['primary', 'success', 'warning', 'danger', 'neutral'] as const;
+
+function normalizeLabelColor(color: string | undefined): string {
+  const value = String(color ?? '').trim().toLowerCase();
+  return (LABEL_COLOR_VALUES as readonly string[]).includes(value) ? value : 'primary';
+}
+
+async function getLabelByIdFromDb(db: D1Database, labelId: string): Promise<LabelDto | null> {
+  const hasVisible = await hasLabelVisibleColumn(db);
+  const visibleCol = labelVisibleFragment(hasVisible, 'l');
+  const row = await db
+    .prepare(
+      `
+      SELECT l.id, l.name, l.color, ${visibleCol} AS visible,
+             (SELECT COUNT(*) FROM user_labels ul WHERE ul.label_id = l.id) AS user_count
+      FROM labels l
+      WHERE l.id = ?
+      LIMIT 1
+    `
+    )
+    .bind(labelId)
+    .first<Record<string, unknown>>();
+  if (!row) {
+    return null;
+  }
+  return {
+    id: String(row.id ?? ''),
+    name: String(row.name ?? ''),
+    color: String(row.color ?? 'primary'),
+    visible: Number(row.visible ?? 1) === 1,
+    userCount: Number(row.user_count ?? 0)
+  };
+}
+
+export async function createLabelInDb(db: D1Database | undefined, input: LabelInput): Promise<LabelMutationResult> {
+  if (!db) {
+    throw new Error('DB binding is required for create operation');
+  }
+  const name = input.name.trim().slice(0, 40);
+  if (!name) {
+    return { ok: false, reason: 'invalid_name' };
+  }
+  const existing = await db
+    .prepare('SELECT id FROM labels WHERE lower(name) = lower(?) LIMIT 1')
+    .bind(name)
+    .first<{ id: string }>();
+  if (existing?.id) {
+    return { ok: false, reason: 'already_exists' };
+  }
+
+  const id = crypto.randomUUID();
+  await ensureLabelVisibleColumn(db);
+  const hasVisible = await hasLabelVisibleColumn(db);
+  if (hasVisible) {
+    await db
+      .prepare('INSERT INTO labels (id, name, color, visible, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)')
+      .bind(id, name, normalizeLabelColor(input.color), input.visible === false ? 0 : 1)
+      .run();
+  } else {
+    await db
+      .prepare('INSERT INTO labels (id, name, color, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)')
+      .bind(id, name, normalizeLabelColor(input.color))
+      .run();
+  }
+
+  return { ok: true, label: (await getLabelByIdFromDb(db, id)) ?? undefined };
+}
+
+export async function updateLabelInDb(
+  db: D1Database | undefined,
+  labelId: string,
+  input: LabelInput
+): Promise<LabelMutationResult> {
+  if (!db) {
+    throw new Error('DB binding is required for update operation');
+  }
+  const name = input.name.trim().slice(0, 40);
+  if (!name) {
+    return { ok: false, reason: 'invalid_name' };
+  }
+  const existing = await getLabelByIdFromDb(db, labelId);
+  if (!existing) {
+    return { ok: false, reason: 'not_found' };
+  }
+  await ensureLabelVisibleColumn(db);
+  const duplicate = await db
+    .prepare('SELECT id FROM labels WHERE lower(name) = lower(?) AND id <> ? LIMIT 1')
+    .bind(name, labelId)
+    .first<{ id: string }>();
+  if (duplicate?.id) {
+    return { ok: false, reason: 'already_exists' };
+  }
+
+  const hasVisible = await hasLabelVisibleColumn(db);
+  if (hasVisible && input.visible !== undefined) {
+    await db
+      .prepare('UPDATE labels SET name = ?, color = ?, visible = ? WHERE id = ?')
+      .bind(name, normalizeLabelColor(input.color), input.visible ? 1 : 0, labelId)
+      .run();
+  } else {
+    await db
+      .prepare('UPDATE labels SET name = ?, color = ? WHERE id = ?')
+      .bind(name, normalizeLabelColor(input.color), labelId)
+      .run();
+  }
+
+  return { ok: true, label: (await getLabelByIdFromDb(db, labelId)) ?? undefined };
+}
+
+export async function deleteLabelInDb(
+  db: D1Database | undefined,
+  labelId: string
+): Promise<{ ok: boolean; reason?: 'not_found' }> {
+  if (!db) {
+    throw new Error('DB binding is required for delete operation');
+  }
+  const existing = await getLabelByIdFromDb(db, labelId);
+  if (!existing) {
+    return { ok: false, reason: 'not_found' };
+  }
+  await db.prepare('DELETE FROM user_labels WHERE label_id = ?').bind(labelId).run();
+  await db.prepare('DELETE FROM labels WHERE id = ?').bind(labelId).run();
+  return { ok: true };
+}
+
+export async function setUserLabelsInDb(
+  db: D1Database | undefined,
+  userId: string,
+  labelIds: string[]
+): Promise<{ ok: boolean; reason?: 'not_found' }> {
+  if (!db) {
+    throw new Error('DB binding is required for update operation');
+  }
+  const user = await db.prepare('SELECT id FROM users WHERE id = ? LIMIT 1').bind(userId).first<{ id: string }>();
+  if (!user?.id) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const uniqueIds = Array.from(new Set((labelIds ?? []).map((id) => String(id)).filter(Boolean))).slice(0, 50);
+  const validIds = new Set<string>();
+  if (uniqueIds.length > 0) {
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const { results } = await db
+      .prepare(`SELECT id FROM labels WHERE id IN (${placeholders})`)
+      .bind(...uniqueIds)
+      .all<{ id: string }>();
+    for (const row of results ?? []) {
+      validIds.add(String(row.id));
+    }
+  }
+
+  await db.prepare('DELETE FROM user_labels WHERE user_id = ?').bind(userId).run();
+  if (validIds.size > 0) {
+    const values = Array.from(validIds);
+    const statements = values.map((labelId) =>
+      db.prepare('INSERT INTO user_labels (user_id, label_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)').bind(userId, labelId)
+    );
+    await db.batch(statements);
+  }
+  return { ok: true };
 }
 
 const dashboardOverviewFallback: DashboardDto = {

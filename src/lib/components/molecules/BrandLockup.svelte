@@ -1,17 +1,11 @@
 <script lang="ts">
-  import Icon from '$lib/components/atoms/Icon.svelte';
   export let compact = false;
 </script>
 
-<div class="brand">
-  <div class="logo signature-bg">
-    <Icon name="cloud" size={20} />
-  </div>
+<div class="brand" class:compact>
+  <span class="logo-mark">M</span>
   {#if !compact}
-    <div>
-      <div class="name">MailFlare</div>
-      <div class="caption">Infrastructure</div>
-    </div>
+    <span class="logo-text">Mailflare</span>
   {/if}
 </div>
 
@@ -19,30 +13,28 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.45rem;
+    min-width: 0;
   }
 
-  .logo {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: var(--radius-md);
-    color: #fff;
-    display: grid;
-    place-items: center;
+  .brand.compact {
+    justify-content: center;
   }
 
-  .name {
+  .logo-mark {
     font-family: var(--font-family-headline);
-    font-size: 1.1rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-primary-500);
   }
 
-  .caption {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-label-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
+  .logo-text {
+    font-family: var(--font-family-headline);
+    font-size: 1.35rem;
     font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    white-space: nowrap;
   }
 </style>

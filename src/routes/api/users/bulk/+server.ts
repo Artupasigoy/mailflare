@@ -54,6 +54,8 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   const payload = (await request.json().catch(() => null)) as
     | { mode?: string; usernames?: unknown; userIds?: unknown; password?: string }
     | null;
+  // mode dinormalisasi ke huruf kecil (mis. "softDelete" -> "softdelete") agar
+  // cocok dengan perbandingan di bawah.
   const mode = payload?.mode?.trim().toLowerCase();
 
   try {
@@ -164,7 +166,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       return json({ ok: true, restored, skipped });
     }
 
-    if (mode === 'softDelete') {
+    if (mode === 'softdelete') {
       const userIds = Array.isArray(payload?.userIds)
         ? payload.userIds.map((id) => String(id)).filter(Boolean).slice(0, MAX_BULK)
         : [];
@@ -188,7 +190,62 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       return json({ ok: true, deleted: result.deleted.length, skipped: result.skipped });
     }
 
-    if (mode === 'emptyTrash') {
+    if (mode === 'resetpassword') {
+      const userIds = Array.isArray(payload?.userIds)
+        ? payload.userIds.map((id) => String(id)).filter(Boolean).slice(0, MAX_BULK)
+        : [];
+      if (userIds.length === 0) {
+        return json({ error: 'Tidak ada user yang dipilih' }, { status: 400 });
+      }
+
+      const sharedPassword = (payload?.password ?? '').trim();
+      if (sharedPassword && (sharedPassword.length < 8 || sharedPassword.length > 128)) {
+        return json({ error: 'Password bersama harus 8-128 karakter' }, { status: 400 });
+      }
+
+      const rows = await db
+        .prepare(
+          `SELECT u.id, u.email,
+                  CASE WHEN u.password_hash IS NOT NULL AND u.deleted_at IS NULL THEN 'active' ELSE 'disabled' END AS status,
+                  (SELECT COUNT(*) FROM users o WHERE o.id = u.id AND o.id = (SELECT id FROM users ORDER BY created_at ASC, id ASC LIMIT 1)) AS is_owner
+           FROM users u
+           WHERE u.id IN (${userIds.map(() => '?').join(', ')})`
+        )
+        .bind(...userIds)
+        .all<{ id: string; email: string; status: string; is_owner: number }>();
+
+      const reset: Array<{ id: string; email: string; password: string }> = [];
+      const skipped: Array<{ id: string; email: string; reason: string }> = [];
+      let sharedHash = '';
+
+      for (const row of rows.results ?? []) {
+        const id = String(row.id);
+        if (Number(row.is_owner ?? 0) === 1) {
+          skipped.push({ id, email: String(row.email), reason: 'user owner tidak bisa direset massal' });
+          continue;
+        }
+        if (String(row.status) !== 'active') {
+          skipped.push({ id, email: String(row.email), reason: 'user tidak aktif (di Sampah)' });
+          continue;
+        }
+
+        const password = sharedPassword || generateSecurePassword(18);
+        const passwordHash = sharedHash || (await hashPassword(password));
+        if (sharedPassword && !sharedHash) {
+          sharedHash = passwordHash;
+        }
+        await db
+          .prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .bind(passwordHash, id)
+          .run();
+        await db.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(id).run();
+        reset.push({ id, email: String(row.email), password });
+      }
+
+      return json({ ok: true, reset, skipped });
+    }
+
+    if (mode === 'emptytrash') {
       const result = await deleteTrashedUsersInDb(db, null);
       return json({ ok: true, deleted: result.deleted.length, skipped: result.skipped });
     }

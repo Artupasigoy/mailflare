@@ -22,11 +22,15 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
     return json({ error: 'Expected JSON body' }, { status: 400 });
   }
 
-  const body = (await request.json().catch(() => null)) as { username?: string } | null;
+  const body = (await request.json().catch(() => null)) as { username?: string; password?: string } | null;
   const usernameRaw = body?.username?.trim().toLowerCase() ?? '';
+  const manualPassword = (body?.password ?? '').trim();
 
   if (!usernameRaw) {
     return json({ error: 'username is required' }, { status: 400 });
+  }
+  if (manualPassword && (manualPassword.length < 8 || manualPassword.length > 128)) {
+    return json({ error: 'password must be 8-128 characters' }, { status: 400 });
   }
   if (usernameRaw.length < 3 || usernameRaw.length > 64) {
     return json({ error: 'username must be 3-64 characters' }, { status: 400 });
@@ -49,7 +53,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
 
     const domain = await resolveUserDomain(db, platform?.env?.MAILFLARE_USER_DOMAIN, locals.sessionEmail);
     const email = `${usernameRaw}@${domain}`;
-    const password = generateSecurePassword();
+    const password = manualPassword || generateSecurePassword();
     const passwordHash = await hashPassword(password);
     const displayName = usernameRaw;
 

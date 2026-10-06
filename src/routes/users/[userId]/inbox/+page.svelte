@@ -99,7 +99,6 @@
           emailHrefPrefix="/me/emails"
           apiHrefPrefix="/api/me/emails"
           isSearching={isSearching}
-          resultCount={data.search?.resultCount ?? 0}
           view={view}
           trashEmptyUrl="/api/me/trash/empty"
         />
@@ -143,7 +142,6 @@
             emailHrefPrefix={`/users/${data.userId}/emails`}
             apiHrefPrefix={`/api/users/${data.userId}/emails`}
             isSearching={isSearching}
-            resultCount={data.search?.resultCount ?? 0}
             view={view}
             trashEmptyUrl={`/api/users/${data.userId}/trash/empty`}
           />

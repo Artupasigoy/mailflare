@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import type { UserDto } from '$lib/types/dto';
+  import type { LabelDto, UserDto } from '$lib/types/dto';
   import CardSurface from '$lib/components/atoms/CardSurface.svelte';
   import Badge from '$lib/components/atoms/Badge.svelte';
   import Avatar from '$lib/components/atoms/Avatar.svelte';
@@ -17,24 +17,29 @@
   export let page = 1;
   export let pageSize = 20;
   export let trashView = false;
+  export let labels: LabelDto[] = [];
   export let onPage: ((next: number) => void) | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ usercreated: void; userchanged: void }>();
 
   function handleModalKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      if (bulkPending || isSubmitting) return;
+      if (bulkPending || isSubmitting || labelPending) return;
       modalOpen = false;
       bulkModalOpen = false;
+      resetModalOpen = false;
+      labelModalOpen = false;
       resetForm();
       bulkCredentials = [];
       bulkSkipped = [];
+      bulkMode = 'create';
     }
   }
 
 
   let modalOpen = false;
   let username = '';
+  let createPassword = '';
   let isSubmitting = false;
   let actionUserId = '';
   let errorMessage = '';
@@ -52,8 +57,25 @@
   let bulkErrors: string[] = [];
   let bulkCredentials: Array<{ username: string; email: string; password: string }> = [];
   let bulkSkipped: string[] = [];
-  let bulkMode: 'create' | 'restore' = 'create';
+  let bulkMode: 'create' | 'restore' | 'resetPassword' = 'create';
   let selectAllEl: HTMLInputElement | undefined;
+  // Bulk reset password
+  let resetModalOpen = false;
+  let resetPasswordMode: 'random' | 'same' = 'random';
+  let resetSharedPassword = '';
+  $: bulkResultTitle =
+    bulkMode === 'restore' ? 'Pulihkan User Massal' : bulkMode === 'resetPassword' ? 'Reset Password Massal' : 'Buat User Massal';
+  $: bulkResultSubtitle =
+    bulkMode === 'restore'
+      ? `${bulkCredentials.length} user berhasil dipulihkan${bulkSkipped.length > 0 ? `, ${bulkSkipped.length} dilewati` : ''}.`
+      : bulkMode === 'resetPassword'
+        ? `${bulkCredentials.length} password berhasil direset${bulkSkipped.length > 0 ? `, ${bulkSkipped.length} dilewati` : ''}.`
+        : `${bulkCredentials.length} user berhasil dibuat${bulkSkipped.length > 0 ? `, ${bulkSkipped.length} dilewati` : ''}.`;
+  // Edit label per user (modal label)
+  let labelModalOpen = false;
+  let labelTargetUser: UserDto | null = null;
+  let labelSelection: string[] = [];
+  let labelPending = false;
   let allSelected = false;
   let generatedCredentials: {
     username: string;
@@ -71,7 +93,6 @@
   $: someSelected = selectedOnPage > 0 && !allSelected;
   $: selectedDisabled = users.filter((user) => selectedSet.has(user.id) && user.status !== 'active').length;
   $: selectedActive = users.filter((user) => selectedSet.has(user.id) && user.status === 'active').length;
-  $: selectedPermanent = users.filter((user) => selectedSet.has(user.id)).length;
 
   $: if (selectAllEl) {
     selectAllEl.indeterminate = someSelected;
@@ -101,6 +122,19 @@
     return Number(value ?? 0).toLocaleString();
   }
 
+  function visibleLabelsFor(user: UserDto) {
+    return (user.labels ?? []).filter((label) => label.visible !== false);
+  }
+
+  function formatBytes(value: number | undefined): string {
+    const bytes = Number(value ?? 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
   function toggleSelect(id: string) {
     selectedIds = selectedSet.has(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id];
   }
@@ -109,12 +143,111 @@
     selectedIds = allSelected ? [] : [...selectableIds];
   }
 
+  function openLabelModal(user: UserDto) {
+    labelTargetUser = user;
+    labelSelection = (user.labels ?? []).map((label) => label.id);
+    labelModalOpen = true;
+  }
+
+  function toggleLabelSelection(labelId: string) {
+    labelSelection = labelSelection.includes(labelId)
+      ? labelSelection.filter((id) => id !== labelId)
+      : [...labelSelection, labelId];
+  }
+
+  async function saveUserLabels() {
+    if (!labelTargetUser || labelPending) return;
+    labelPending = true;
+    listMessage = '';
+    try {
+      const response = await fetch(`/api/users/${labelTargetUser.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ labelIds: labelSelection })
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        listMessage = payload?.error ?? 'Gagal menyimpan label.';
+        return;
+      }
+      toastStore.success('Label user diperbarui');
+      labelModalOpen = false;
+      dispatch('userchanged');
+    } catch {
+      listMessage = 'Gagal menghubungi server.';
+    } finally {
+      labelPending = false;
+    }
+  }
+
+  function openResetModal() {
+    if (bulkPending || selectedActive === 0) return;
+    resetPasswordMode = 'random';
+    resetSharedPassword = '';
+    resetModalOpen = true;
+  }
+
+  async function handleBulkResetPassword() {
+    if (bulkPending || selectedIds.length === 0) return;
+    if (resetPasswordMode === 'same' && resetSharedPassword.trim().length < 8) {
+      listMessage = 'Password bersama minimal 8 karakter.';
+      return;
+    }
+    bulkPending = true;
+    listMessage = '';
+    try {
+      const response = await fetch('/api/users/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'resetPassword',
+          userIds: selectedIds,
+          ...(resetPasswordMode === 'same' && resetSharedPassword.trim() ? { password: resetSharedPassword.trim() } : {})
+        })
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            reset?: Array<{ email: string; password: string }>;
+            skipped?: Array<{ email: string; reason: string }>;
+          }
+        | null;
+      if (!response.ok) {
+        listMessage = payload?.error ?? 'Gagal reset password.';
+        return;
+      }
+      const reset = payload?.reset ?? [];
+      if (reset.length > 0) {
+        bulkCredentials = reset.map((item) => ({
+          username: item.email.split('@')[0] ?? item.email,
+          email: item.email,
+          password: item.password
+        }));
+        bulkMode = 'resetPassword';
+        bulkSharedPassword = '';
+        resetModalOpen = false;
+        bulkModalOpen = true;
+      }
+      const skipped = payload?.skipped ?? [];
+      listMessage = `${reset.length} password direset${skipped.length ? `, ${skipped.length} dilewati` : ''}.`;
+      toastStore.success(`${reset.length} password direset`);
+      selectedIds = [];
+      dispatch('userchanged');
+    } catch {
+      listMessage = 'Gagal menghubungi server.';
+    } finally {
+      bulkPending = false;
+    }
+  }
+
   async function handleBulkSoftDelete() {
     if (bulkPending || selectedIds.length === 0 || selectedActive === 0) return;
     if (
-      !confirm(
-        `Pindahkan ${selectedActive} user ke Sampah?\n\nUser tidak bisa login, email tetap tersimpan, dan bisa dipulihkan selama 30 hari.`
-      )
+      !(await confirmDialog({
+        title: 'Pindahkan ke Sampah',
+        message: `${selectedActive} user akan dipindahkan ke Sampah. User tidak bisa login, email tetap tersimpan, dan bisa dipulihkan selama 30 hari.`,
+        confirmLabel: 'Pindahkan'
+      }))
     ) {
       return;
     }
@@ -147,41 +280,7 @@
     }
   }
 
-  async function handleBulkDelete() {
-    if (bulkPending || selectedIds.length === 0) return;
-    if (selectedPermanent === 0) {
-      return;
-    }
-    if (!(await confirmDialog({ title: 'Hapus Permanen', message: `${selectedPermanent} user beserta emailnya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.`, confirmLabel: 'Hapus Permanen', danger: true }))) return;
-    bulkPending = true;
-    listMessage = '';
-    try {
-      const response = await fetch('/api/users/bulk', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode: 'delete', userIds: selectedIds })
-      });
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string; deleted?: number; skipped?: Array<{ email: string; reason: string }> }
-        | null;
-      if (!response.ok) {
-        listMessage = payload?.error ?? 'Gagal menghapus user.';
-        return;
-      }
-      const skipped = payload?.skipped ?? [];
-      const skipText = skipped.length
-        ? ` (${skipped.length} dilewati: ${skipped.map((item) => `${item.email} — ${item.reason}`).join('; ')})`
-        : '';
-      listMessage = `${payload?.deleted ?? 0} user dihapus${skipText}.`;
-      toastStore.success('User dihapus permanen');
-      selectedIds = [];
-      dispatch('userchanged');
-    } catch {
-      listMessage = 'Gagal menghubungi server.';
-    } finally {
-      bulkPending = false;
-    }
-  }
+  
 
   async function handleRestore(user: UserDto) {
     if (bulkPending || user.role === 'owner') return;
@@ -247,6 +346,7 @@
           email: item.email,
           password: item.password
         }));
+        bulkMode = 'restore';
         bulkModalOpen = true;
       }
       const skipped = payload?.skipped ?? [];
@@ -273,6 +373,15 @@
   function closeBulkModal() {
     if (bulkPending) return;
     bulkModalOpen = false;
+    bulkCredentials = [];
+    bulkSkipped = [];
+  }
+
+  function closeBulkResult() {
+    bulkCredentials = [];
+    bulkSkipped = [];
+    bulkModalOpen = false;
+    bulkMode = 'create';
   }
 
   async function handleBulkCreate() {
@@ -351,10 +460,34 @@
 
   function resetForm() {
     username = '';
+    createPassword = '';
     errorMessage = '';
     copyMessage = '';
     generatedCredentials = null;
     credentialContext = 'create';
+  }
+
+  function generatePassword() {
+    const lowercase = 'abcdefghjkmnpqrstuvwxyz';
+    const uppercase = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+    const numbers = '23456789';
+    const symbols = '!@#$%^&*_-+=?';
+    const all = `${lowercase}${uppercase}${numbers}${symbols}`;
+    const randomInt = (max: number) => {
+      const bytes = new Uint32Array(1);
+      crypto.getRandomValues(bytes);
+      return bytes[0] % max;
+    };
+    const pick = (chars: string) => chars[randomInt(chars.length)];
+    const chars = [pick(lowercase), pick(uppercase), pick(numbers), pick(symbols)];
+    while (chars.length < 18) {
+      chars.push(pick(all));
+    }
+    for (let i = chars.length - 1; i > 0; i -= 1) {
+      const j = randomInt(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    createPassword = chars.join('');
   }
 
   async function handleCreateUser() {
@@ -381,6 +514,12 @@
       isSubmitting = false;
       return;
     }
+    const manualPassword = createPassword.trim();
+    if (manualPassword && (manualPassword.length < 8 || manualPassword.length > 128)) {
+      errorMessage = 'Password harus 8-128 karakter.';
+      isSubmitting = false;
+      return;
+    }
 
     try {
       const response = await fetch('/api/users', {
@@ -389,7 +528,8 @@
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          username: normalized
+          username: normalized,
+          ...(manualPassword ? { password: manualPassword } : {})
         })
       });
 
@@ -417,6 +557,7 @@
       credentialContext = 'create';
       toastStore.success('User baru dibuat');
       username = '';
+      createPassword = '';
       dispatch('usercreated');
       dispatch('userchanged');
     } catch {
@@ -429,7 +570,7 @@
   async function copyValue(label: string, content: string) {
     try {
       await navigator.clipboard.writeText(content);
-      copyMessage = `${label} copied.`;
+      copyMessage = `${label} disalin.`;
     } catch {
       copyMessage = 'Gagal menyalin. Salin manual.';
     }
@@ -612,44 +753,8 @@
     </div>
   {:else}
     <div class="bulk-toolbar">
-      <label class="select-all">
-        <input bind:this={selectAllEl} type="checkbox" checked={allSelected} on:change={toggleSelectAll} />
-        <span>Pilih semua</span>
-      </label>
-      <span class="text-muted">
-        {selectedIds.length > 0
-          ? `${selectedIds.length} dipilih${selectedOnPage < selectedIds.length ? ` (${selectedOnPage} di halaman ini)` : ''}`
-          : `${selectableUsers.length} user dapat dipilih`}
-      </span>
-      {#if !trashView && selectedActive > 0}
-        <button class="bulk-btn" type="button" disabled={bulkPending} on:click={handleBulkSoftDelete}>
-          <Icon name="person_remove" size={16} />
-          Pindahkan ke Sampah ({selectedActive})
-        </button>
-      {/if}
-      {#if selectedDisabled > 0}
-        <button
-          class="bulk-btn"
-          type="button"
-          disabled={bulkPending}
-          on:click={handleBulkRestore}
-        >
-          <Icon name="restore" size={16} />
-          Pulihkan ({selectedDisabled})
-        </button>
-      {/if}
-      {#if trashView && selectedPermanent > 0}
-        <button
-          class="bulk-btn danger"
-          type="button"
-          disabled={bulkPending}
-          on:click={handleBulkDelete}
-        >
-          <Icon name="delete" size={16} />
-          Hapus Permanen ({selectedPermanent})
-        </button>
-      {/if}
       {#if trashView}
+        <span class="text-muted">{users.length} user di Sampah</span>
         <button
           class="bulk-btn danger"
           type="button"
@@ -659,21 +764,54 @@
           <Icon name="delete_forever" size={16} />
           Kosongkan Sampah
         </button>
+      {:else}
+        <label class="select-all">
+          <input bind:this={selectAllEl} type="checkbox" checked={allSelected} on:change={toggleSelectAll} />
+          <span>Pilih semua</span>
+        </label>
+        <span class="text-muted">
+          {selectedIds.length > 0
+            ? `${selectedIds.length} dipilih${selectedOnPage < selectedIds.length ? ` (${selectedOnPage} di halaman ini)` : ''}`
+            : `${selectableUsers.length} user dapat dipilih`}
+        </span>
+        {#if selectedActive > 0}
+          <button class="bulk-btn" type="button" disabled={bulkPending} on:click={openResetModal}>
+            <Icon name="lock_reset" size={16} />
+            Reset Password ({selectedActive})
+          </button>
+          <button class="bulk-btn danger" type="button" disabled={bulkPending} on:click={handleBulkSoftDelete}>
+            <Icon name="person_remove" size={16} />
+            Pindahkan ke Sampah ({selectedActive})
+          </button>
+        {/if}
+        {#if selectedDisabled > 0}
+          <button
+            class="bulk-btn"
+            type="button"
+            disabled={bulkPending}
+            on:click={handleBulkRestore}
+          >
+            <Icon name="restore" size={16} />
+            Pulihkan ({selectedDisabled})
+          </button>
+        {/if}
       {/if}
     </div>
 
     <div class="list">
       {#each users as user (user.id)}
-        <div class={`row ${selectedSet.has(user.id) ? 'selected' : ''}`}>
-          <span class="row-select">
-            <input
-              type="checkbox"
-              checked={selectedSet.has(user.id)}
-              disabled={user.role === 'owner'}
-              aria-label={`Pilih ${user.email}`}
-              on:change={() => toggleSelect(user.id)}
-            />
-          </span>
+        <div class={`row ${!trashView && selectedSet.has(user.id) ? 'selected' : ''}`}>
+          {#if !trashView}
+            <span class="row-select">
+              <input
+                type="checkbox"
+                checked={selectedSet.has(user.id)}
+                disabled={user.role === 'owner'}
+                aria-label={`Pilih ${user.email}`}
+                on:change={() => toggleSelect(user.id)}
+              />
+            </span>
+          {/if}
           <a href={`/users/${user.id}/inbox`} class="identity-link" title="Buka inbox user ini">
             <Avatar initials={user.displayName.slice(0, 2).toUpperCase()} />
             <div class="identity-text">
@@ -682,7 +820,21 @@
               <div class="text-muted identity-metrics">
                 <span>Email: {formatCount(user.totalEmails)}</span>
                 <span>Unread: {formatCount(user.unreadEmails)}</span>
+                <span class="storage-metric" title="Total ukuran email tersimpan">
+                  <Icon name="database" size={12} />
+                  {formatBytes(user.storageBytes)}
+                </span>
               </div>
+              {#if visibleLabelsFor(user).length > 0}
+                <div class="row-labels">
+                  {#each visibleLabelsFor(user) as label (label.id)}
+                    <span class={`row-label tone-${label.color}`}>
+                      <span class="rdot"></span>
+                      {label.name}
+                    </span>
+                  {/each}
+                </div>
+              {/if}
               {#if user.latestEmail}
                 <div class="latest-email">
                   <Icon name="mail" size={14} />
@@ -714,6 +866,16 @@
                 <Icon name="content_copy" size={16} />
               </button>
               {#if !trashView}
+              <button
+                class="icon-action"
+                type="button"
+                aria-label="Atur label"
+                title="Atur label"
+                disabled={actionUserId === user.id || labelPending}
+                on:click={() => openLabelModal(user)}
+              >
+                <Icon name="sell" size={16} />
+              </button>
               <button
                 class="icon-action"
                 type="button"
@@ -783,9 +945,17 @@
   <button class="modal-backdrop" type="button" aria-label="Close bulk create modal" on:click={closeBulkModal}></button>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-create-title">
     <div class="modal-card">
+      <button class="modal-close" type="button" aria-label="Tutup" title="Tutup" disabled={bulkPending} on:click={closeBulkModal}>
+        <Icon name="close" size={18} />
+      </button>
       <div class="modal-head">
-        <h3 id="bulk-create-title">Buat User Massal</h3>
-        <p class="text-muted">Satu username per baris (atau dipisah spasi/koma). Maks 100 user.</p>
+        {#if bulkCredentials.length > 0}
+          <h3 id="bulk-create-title">{bulkResultTitle}</h3>
+          <p class="text-muted">{bulkResultSubtitle}</p>
+        {:else}
+          <h3 id="bulk-create-title">Buat User Massal</h3>
+          <p class="text-muted">Satu username per baris (atau dipisah spasi/koma). Maks 100 user.</p>
+        {/if}
       </div>
 
       {#if bulkCredentials.length === 0}
@@ -834,7 +1004,7 @@
         </form>
       {:else}
         <div class="modal-body">
-        <p class="text-muted">{bulkCredentials.length} user berhasil dibuat{bulkSkipped.length > 0 ? `, ${bulkSkipped.length} dilewati` : ""}.</p>
+        <p class="text-muted">{bulkResultSubtitle}</p>
 
         <div class="bulk-result">
           {#each bulkCredentials as item (item.email)}
@@ -863,10 +1033,7 @@
           <button
             class="btn-submit signature-bg"
             type="button"
-            on:click={() => {
-              bulkCredentials = [];
-              bulkSkipped = [];
-            }}
+            on:click={closeBulkResult}
           >Tutup</button>
         </div>
       {/if}
@@ -878,6 +1045,9 @@
   <button class="modal-backdrop" type="button" aria-label="Close add user modal" on:click={closeModal}></button>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
     <div class={`modal-card ${generatedCredentials ? 'modal-success' : ''}`}>
+      <button class="modal-close" type="button" aria-label="Tutup" title="Tutup" disabled={isSubmitting} on:click={closeModal}>
+        <Icon name="close" size={18} />
+      </button>
       {#if generatedCredentials}
         <div class="top-accent"></div>
       {:else}
@@ -961,7 +1131,30 @@
                 <Icon name="alternate_email" size={16} />
               </span>
             </div>
-            <p class="hint text-muted">Email dan password akan dibuat otomatis secara aman sesuai domain yang ditentukan.</p>
+            <p class="hint text-muted">Email dibuat otomatis sesuai domain yang ditentukan.</p>
+          </div>
+
+          <div class="field">
+            <label for="add-user-password">Password</label>
+            <div class="password-shell">
+              <InputText
+                id="add-user-password"
+                bind:value={createPassword}
+                placeholder="Kosongkan untuk password acak"
+                type="text"
+              />
+              <button
+                class="generate-btn"
+                type="button"
+                aria-label="Buat password acak"
+                title="Buat password acak"
+                on:click={generatePassword}
+              >
+                <Icon name="casino" size={16} />
+                Generate
+              </button>
+            </div>
+            <p class="hint text-muted">Bisa ditulis manual, atau klik Generate untuk password acak.</p>
           </div>
 
           {#if errorMessage}
@@ -976,6 +1169,111 @@
           </div>
         </form>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if resetModalOpen}
+  <button class="modal-backdrop" type="button" aria-label="Tutup" on:click={() => !bulkPending && (resetModalOpen = false)}></button>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+    <div class="modal-card">
+      <button class="modal-close" type="button" aria-label="Tutup" title="Tutup" disabled={bulkPending} on:click={() => (resetModalOpen = false)}>
+        <Icon name="close" size={18} />
+      </button>
+      <div class="modal-head">
+        <h3 id="reset-password-title">Reset Password Massal</h3>
+        <p class="text-muted">{selectedActive} user aktif akan direset passwordnya. Sesi login lama otomatis dicabut.</p>
+      </div>
+      <div class="modal-body">
+        <div class="resume-list">
+          {#each users.filter((u) => selectedSet.has(u.id) && u.status === 'active') as user (user.id)}
+            <div class="resume-row">
+              <Avatar initials={user.displayName.slice(0, 2).toUpperCase()} />
+              <div class="resume-info">
+                <span class="resume-name">{user.displayName}</span>
+                <span class="text-muted resume-email">{user.email}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+
+        <div class="field">
+          <label for="reset-password-mode">Password</label>
+          <select id="reset-password-mode" class="bulk-select" bind:value={resetPasswordMode}>
+            <option value="random">Acak (berbeda untuk tiap user)</option>
+            <option value="same">Sama untuk semua user</option>
+          </select>
+        </div>
+
+        {#if resetPasswordMode === 'same'}
+          <div class="field">
+            <label for="reset-shared-password">Password bersama</label>
+            <InputText id="reset-shared-password" bind:value={resetSharedPassword} placeholder="Minimal 8 karakter" type="text" />
+          </div>
+        {/if}
+
+        {#if listMessage}
+          <p class="text-muted">{listMessage}</p>
+        {/if}
+
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" disabled={bulkPending} on:click={() => (resetModalOpen = false)}>Batal</button>
+          <button
+            class="btn-submit signature-bg"
+            type="button"
+            disabled={bulkPending || (resetPasswordMode === 'same' && resetSharedPassword.trim().length < 8)}
+            on:click={handleBulkResetPassword}
+          >
+            {bulkPending ? 'Memproses...' : 'Reset Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if labelModalOpen && labelTargetUser}
+  <button class="modal-backdrop" type="button" aria-label="Tutup" on:click={() => !labelPending && (labelModalOpen = false)}></button>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="user-label-title">
+    <div class="modal-card">
+      <button class="modal-close" type="button" aria-label="Tutup" title="Tutup" disabled={labelPending} on:click={() => (labelModalOpen = false)}>
+        <Icon name="close" size={18} />
+      </button>
+      <div class="modal-head">
+        <h3 id="user-label-title">Label untuk {labelTargetUser.displayName}</h3>
+        <p class="text-muted">Pilih satu atau lebih label untuk akun ini.</p>
+      </div>
+      <div class="modal-body">
+        {#if labels.length === 0}
+          <div class="empty">
+            <Icon name="sell" size={32} />
+            <p>Belum ada label. Buat label lewat tombol "Kelola" di halaman User List.</p>
+          </div>
+        {:else}
+          <div class="label-pick">
+            {#each labels as label (label.id)}
+              <label class="label-pick-item">
+                <input
+                  type="checkbox"
+                  class="cb-lg"
+                  checked={labelSelection.includes(label.id)}
+                  on:change={() => toggleLabelSelection(label.id)}
+                />
+                <span class={`row-label tone-${label.color} ${label.visible === false ? 'is-hidden-label' : ''}`}>
+                  <span class="rdot"></span>
+                  {label.name}{label.visible === false ? ' (disembunyikan)' : ''}
+                </span>
+              </label>
+            {/each}
+          </div>
+        {/if}
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" disabled={labelPending} on:click={() => (labelModalOpen = false)}>Batal</button>
+          <button class="btn-submit signature-bg" type="button" disabled={labelPending} on:click={saveUserLabels}>
+            {labelPending ? 'Menyimpan...' : 'Simpan Label'}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 {/if}
@@ -1003,6 +1301,12 @@
     font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  .select-all input {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--color-primary-500);
   }
 
   .deleted-at {
@@ -1038,6 +1342,12 @@
   .row-select {
     display: inline-flex;
     align-items: center;
+  }
+
+  .row-select input {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--color-primary-500);
   }
 
   .row.selected {
@@ -1163,8 +1473,7 @@
   }
 
   .row:hover {
-    border-color: color-mix(in srgb, var(--color-primary-500), transparent 65%);
-    background: var(--color-surface-card);
+    border-color: color-mix(in srgb, var(--color-primary-500), transparent 45%);
   }
 
   .identity-link {
@@ -1184,9 +1493,111 @@
   .identity-metrics {
     margin-top: 0.22rem;
     display: inline-flex;
+    align-items: center;
     gap: 0.8rem;
     font-size: 0.78rem;
     white-space: nowrap;
+    flex-wrap: wrap;
+  }
+
+  .storage-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .row-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.28rem;
+  }
+
+  .row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    padding: 0.12rem 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 60%);
+    background: color-mix(in srgb, var(--color-surface-low), transparent 30%);
+    color: var(--color-text);
+  }
+
+  .row-label .rdot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--color-primary-500);
+  }
+
+  .row-label.tone-success .rdot { background: var(--color-success); }
+  .row-label.tone-warning .rdot { background: var(--color-warning); }
+  .row-label.tone-danger .rdot { background: var(--color-danger); }
+  .row-label.tone-neutral .rdot { background: var(--color-text-muted); }
+  .row-label.is-hidden-label { opacity: 0.55; font-style: italic; }
+
+  .resume-list {
+    display: grid;
+    gap: 0.4rem;
+    max-height: 14rem;
+    overflow: auto;
+    margin-bottom: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 75%);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+  }
+
+  .resume-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .resume-info {
+    display: grid;
+    min-width: 0;
+  }
+
+  .resume-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
+  .resume-email {
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .label-pick {
+    display: grid;
+    gap: 0.4rem;
+    margin-bottom: var(--space-4);
+  }
+
+  .label-pick-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 80%);
+  }
+
+  .label-pick-item:hover {
+    border-color: color-mix(in srgb, var(--color-primary-500), transparent 55%);
+  }
+
+  .cb-lg {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--color-primary-500);
+    flex: 0 0 auto;
   }
 
   .identity-text {
@@ -1235,9 +1646,16 @@
     border-color: color-mix(in srgb, var(--color-primary-500), transparent 55%);
   }
 
+  .icon-action.danger {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger), transparent 60%);
+    background: color-mix(in srgb, var(--color-danger), transparent 92%);
+  }
+
   .icon-action.danger:hover {
-    color: #bf273f;
-    border-color: color-mix(in srgb, #bf273f, transparent 55%);
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger), transparent 35%);
+    background: color-mix(in srgb, var(--color-danger), transparent 85%);
   }
 
   .icon-action:disabled {
@@ -1282,12 +1700,41 @@
   }
 
   .modal-card {
+    position: relative;
     width: min(28rem, 100%);
     border-radius: 1rem;
     border: 1px solid color-mix(in srgb, var(--color-outline), transparent 75%);
     background: var(--color-surface-card);
     box-shadow: var(--shadow-modal);
     overflow: hidden;
+  }
+
+  .modal-close {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .modal-close:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-text), transparent 92%);
+    color: var(--color-text);
+  }
+
+  .modal-close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .modal-success {
@@ -1393,6 +1840,45 @@
 
   .input-shell :global(.input):focus {
     background: var(--color-surface-card);
+  }
+
+  .password-shell {
+    position: relative;
+  }
+
+  .password-shell :global(.input) {
+    border: 0;
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--color-surface-low), white 35%);
+    padding-top: 0.9rem;
+    padding-bottom: 0.9rem;
+    padding-right: 7rem;
+  }
+
+  .password-shell :global(.input):focus {
+    background: var(--color-surface-card);
+  }
+
+  .generate-btn {
+    position: absolute;
+    right: 0.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid color-mix(in srgb, var(--color-primary-500), transparent 45%);
+    background: color-mix(in srgb, var(--color-primary-500), transparent 92%);
+    color: var(--color-primary-500);
+    border-radius: 0.6rem;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .generate-btn:hover {
+    background: color-mix(in srgb, var(--color-primary-500), transparent 86%);
   }
 
   .modal-footer {

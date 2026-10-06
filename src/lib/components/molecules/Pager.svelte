@@ -3,7 +3,8 @@
    * Pagination reusable — gaya sama di semua halaman daftar (User List, Semua Email).
    */
   export let page = 1;
-  export let totalPages = 1;
+  /** Bila 0/kosong, dihitung otomatis dari `total`/`pageSize`. */
+  export let totalPages = 0;
   export let total = 0;
   export let pageSize = 20;
   export let label = '';
@@ -11,13 +12,14 @@
 
   const nf = new Intl.NumberFormat('id-ID');
 
+  $: pages = totalPages > 0 ? totalPages : Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   $: rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
   $: rangeEnd = Math.min(page * pageSize, total);
   $: canPrev = page > 1;
-  $: canNext = page < totalPages;
+  $: canNext = page < pages;
 
   function go(next: number) {
-    const target = Math.min(Math.max(1, next), Math.max(1, totalPages));
+    const target = Math.min(Math.max(1, next), Math.max(1, pages));
     if (target === page) {
       return;
     }
@@ -34,7 +36,7 @@
   </div>
   <div class="controls">
     <button type="button" disabled={!canPrev} on:click={() => go(page - 1)} aria-label="Halaman sebelumnya">‹</button>
-    <span class="page">Halaman {page} / {Math.max(1, totalPages)}</span>
+    <span class="page">Halaman {page} / {Math.max(1, pages)}</span>
     <button type="button" disabled={!canNext} on:click={() => go(page + 1)} aria-label="Halaman berikutnya">›</button>
   </div>
 </div>

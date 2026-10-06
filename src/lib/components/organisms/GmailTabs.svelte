@@ -29,7 +29,7 @@
   }
 </script>
 
-<nav class="tabs" role="tablist" aria-label="Menu email">
+<div class="tabs" role="tablist" aria-label="Menu email">
   {#each ITEMS as item (item.key)}
     <a
       class="tab"
@@ -42,7 +42,7 @@
       <span>{item.label}</span>
     </a>
   {/each}
-</nav>
+</div>
 
 <style>
   .tabs {

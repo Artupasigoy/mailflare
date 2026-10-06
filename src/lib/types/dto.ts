@@ -70,6 +70,17 @@ export interface DashboardDto {
 
 export type MetricDto = DashboardMetricDto;
 
+export interface UserLabelDto {
+  id: string;
+  name: string;
+  color: string;
+  visible?: boolean;
+}
+
+export interface LabelDto extends UserLabelDto {
+  userCount: number;
+}
+
 export interface UserDto {
   id: string;
   email: string;
@@ -79,6 +90,10 @@ export interface UserDto {
   telegramEnabled: boolean;
   totalEmails?: number;
   unreadEmails?: number;
+  /** Total ukuran email (byte) milik user. */
+  storageBytes?: number;
+  /** Label yang ditempel ke akun user (bisa lebih dari satu). */
+  labels?: UserLabelDto[];
   /** Waktu soft delete (isi bila status = disabled karena dihapus). */
   deletedAt?: string | null;
   /** Email terakhir yang masuk untuk user ini (ringkasan di User List). */

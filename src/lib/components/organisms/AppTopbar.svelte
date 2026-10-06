@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation';
   import { adminDarkMode, sidebarCollapsed, toggleTheme } from '$lib/stores/ui.store';
+  import { confirmDialog } from '$lib/stores/confirm.store';
   import SearchField from '$lib/components/molecules/SearchField.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
@@ -54,6 +55,7 @@
     if (loggingOut) {
       return;
     }
+    if (!(await confirmDialog({ title: 'Keluar', message: 'Anda yakin ingin keluar dari akun ini?', confirmLabel: 'Keluar', danger: true }))) return;
 
     loggingOut = true;
     try {

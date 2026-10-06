@@ -6,6 +6,9 @@ export const POST: RequestHandler = async ({ platform, locals }) => {
   if (!locals.authenticated) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
+  if (locals.sessionRole !== 'owner') {
+    return json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   try {
     const result = await sendTelegramTestConnection(platform?.env?.DB, platform?.env);

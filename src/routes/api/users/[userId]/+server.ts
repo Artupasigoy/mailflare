@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { deleteUserPermanentlyInDb, getUserByIdFromDb, softDeleteUserInDb, updateUserInDb, restoreUserInDb } from '$lib/server/db';
+import { deleteUserPermanentlyInDb, getUserByIdFromDb, setUserLabelsInDb, softDeleteUserInDb, updateUserInDb, restoreUserInDb } from '$lib/server/db';
 import { generateSecurePassword, hashPassword } from '$lib/server/security';
 
 export const GET: RequestHandler = async ({ platform, params, locals }) => {
@@ -33,9 +33,11 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
     resetPassword?: boolean;
     restore?: boolean;
     telegramEnabled?: boolean;
+    labelIds?: unknown;
   };
   const restore = body.restore === true;
   const resetPassword = body.resetPassword === true;
+  const hasLabelsUpdate = Array.isArray(body.labelIds);
 
   if (restore) {
     try {
@@ -89,7 +91,7 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
     }
   }
 
-  if (email === undefined && displayName === undefined && password === undefined) {
+  if (email === undefined && displayName === undefined && password === undefined && !hasLabelsUpdate) {
     return json({ error: 'No fields to update' }, { status: 400 });
   }
   if (email !== undefined && !email) {
@@ -116,17 +118,31 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
   }
 
   try {
-    const passwordHash = password ? await hashPassword(password) : undefined;
-    const user = await updateUserInDb(platform?.env?.DB, params.userId, { email, displayName, passwordHash, telegramEnabled });
-    if (!user) {
-      return json({ error: 'User not found' }, { status: 404 });
+    if (hasLabelsUpdate) {
+      const labelResult = await setUserLabelsInDb(
+        platform?.env?.DB,
+        params.userId,
+        (body.labelIds as unknown[]).map((id) => String(id))
+      );
+      if (!labelResult.ok) {
+        return json({ error: 'User not found' }, { status: 404 });
+      }
     }
 
-    // Revoke all existing sessions when password changes
-    if (password) {
-      await platform?.env?.DB?.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(params.userId).run();
+    // Update identitas hanya bila ada field selain label (perubahan label saja tidak perlu update user).
+    if (email !== undefined || displayName !== undefined || password !== undefined || telegramEnabled !== undefined) {
+      const passwordHash = password ? await hashPassword(password) : undefined;
+      const user = await updateUserInDb(platform?.env?.DB, params.userId, { email, displayName, passwordHash, telegramEnabled });
+      if (!user) {
+        return json({ error: 'User not found' }, { status: 404 });
+      }
+      if (password) {
+        await platform?.env?.DB?.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(params.userId).run();
+      }
+      return json({ ok: true, user });
     }
 
+    const user = await getUserByIdFromDb(platform?.env?.DB, params.userId);
     return json({ ok: true, user });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

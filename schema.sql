@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   display_name TEXT,
   password_hash TEXT,
-  telegram_enabled INTEGER NOT NULL DEFAULT 1,
+  telegram_enabled INTEGER NOT NULL DEFAULT 0,
   -- Soft delete: user dinonaktifkan (password di-null-kan) dan di-retensi 30 hari
   -- sebelum dihapus permanen. Email tetap disimpan agar bisa di-restore.
   deleted_at TEXT,
@@ -151,6 +151,28 @@ CREATE TABLE IF NOT EXISTS telegram_webhook_updates (
   processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ── Labels (tag untuk akun member, banyak-ke-banyak) ───────────────────
+CREATE TABLE IF NOT EXISTS labels (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  color TEXT NOT NULL DEFAULT 'primary',
+  -- visible = 1 tampil sebagai chip & filter; 0 disembunyikan (tetap ter-assign ke user).
+  visible INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- Untuk database existing tanpa kolom visible (idempoten):
+-- ALTER TABLE labels ADD COLUMN visible INTEGER NOT NULL DEFAULT 1;
+
+-- Relasi user <-> label (satu user boleh punya banyak label).
+CREATE TABLE IF NOT EXISTS user_labels (
+  user_id TEXT NOT NULL,
+  label_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, label_id),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (label_id) REFERENCES labels(id)
+);
+
 -- ── API Keys ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
@@ -180,6 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_access_codes_expires ON access_codes(expires_at);
 CREATE INDEX IF NOT EXISTS idx_access_sessions_expires ON access_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_login_sessions_expires ON login_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_login_sessions_user ON login_sessions(user_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_labels_user ON user_labels(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_labels_label ON user_labels(label_id);
 
 -- ── Cleanup (tables no longer used) ────────────────────────────────────
 DROP INDEX IF EXISTS idx_telegram_events_user;

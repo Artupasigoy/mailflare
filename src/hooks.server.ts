@@ -70,6 +70,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         pathname === '/api/health' ||
         pathname === '/api/me' ||
         pathname === '/api/me/inbox' ||
+        pathname === '/api/me/trash/empty' ||
         pathname.startsWith('/api/me/emails/');
 
       if (!isAllowedApi) {

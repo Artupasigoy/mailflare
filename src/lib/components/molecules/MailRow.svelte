@@ -14,7 +14,6 @@
   export let snippet = '';
   export let receivedAt = '';
   export let isRead = true;
-  export let isStarred = false;
   export let recipient = '';
   export let showLeading = false;
   export let showRecipient = false;
@@ -24,14 +23,14 @@
   export let selected = false;
 </script>
 
-<div class={`mail-row ${isRead ? '' : 'unread'} ${selected ? 'selected' : ''} ${showLeading ? 'has-leading' : ''}`}>
+<div class={`mail-row ${isRead ? '' : 'unread'} ${selected ? 'selected' : ''} ${showLeading ? 'has-leading' : ''} ${showRecipient ? 'has-recipient' : ''}`}>
   {#if showLeading}
-    <span class="lead-cell" on:click|stopPropagation>
+    <span class="lead-cell">
       <slot name="leading" />
     </span>
   {/if}
   {#if showStar}
-    <span class="star-cell" on:click|stopPropagation>
+    <span class="star-cell">
       <slot name="star" />
     </span>
   {/if}
@@ -48,7 +47,7 @@
     {/if}
   </a>
   {#if showActions}
-    <span class="actions" on:click|stopPropagation>
+    <span class="actions">
       <slot name="actions" />
     </span>
   {/if}

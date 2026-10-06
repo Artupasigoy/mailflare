@@ -11,8 +11,6 @@
   export let emailHrefPrefix = '/me/emails';
   export let apiHrefPrefix = '/api/me/emails';
   export let isSearching = false;
-  export let resultCount = 0;
-  export let searchQuery = '';
   export let view: 'inbox' | 'starred' | 'trash' = 'inbox';
   export let trashEmptyUrl = '';
 
@@ -327,7 +325,6 @@
           snippet={email.snippet}
           receivedAt={timeLabel(email.receivedAt)}
           isRead={email.isRead}
-          isStarred={email.isStarred}
           showLeading={activeView !== 'trash'}
           showActions={true}
           selected={selectedSet.has(email.id)}
@@ -494,6 +491,10 @@
     cursor: default;
   }
 
+  .tb-btn.danger {
+    color: var(--gm-danger);
+  }
+
   .tb-btn.danger:hover:not(:disabled) {
     background: var(--gm-danger-soft);
     color: var(--gm-danger);
@@ -517,42 +518,11 @@
     display: block;
   }
 
-  .row {
-    display: grid;
-    grid-template-columns: 26px 26px minmax(0, 1fr) 96px 84px;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.45rem 1rem 0.45rem 0.6rem;
-    border-bottom: 1px solid var(--gm-line);
-    font-size: 0.875rem;
-    color: var(--gm-text);
-  }
-
-  .row:hover {
-    background: var(--gm-surface-2);
-  }
-
-  .row.selected {
-    background: var(--gm-selected);
-  }
-
-  .row.unread {
-    font-weight: 700;
-  }
-
-  .cb,
-  .cb-space {
-    width: 16px;
-    height: 16px;
-    margin: 0;
-  }
-
   .cb {
+    width: 18px;
+    height: 18px;
+    margin: 0;
     accent-color: var(--gm-blue);
-    display: block;
-  }
-
-  .cb-space {
     display: block;
   }
 
@@ -581,58 +551,6 @@
     display: block;
   }
 
-  .row-link {
-    display: grid;
-    grid-template-columns: 190px minmax(0, 1fr);
-    gap: 0.75rem;
-    padding-left: 0.15rem;
-    align-items: baseline;
-    text-decoration: none;
-    color: inherit;
-    min-width: 0;
-  }
-
-  .sender {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .subject {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .snippet {
-    color: var(--gm-muted);
-    font-weight: 400;
-  }
-
-  .time {
-    font-size: 0.78rem;
-    color: var(--gm-muted);
-    text-align: right;
-    white-space: nowrap;
-  }
-
-  .row.unread .time {
-    color: var(--gm-text);
-  }
-
-  .quick {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.15rem;
-    padding-right: 0.15rem;
-    visibility: hidden;
-  }
-
-  .row:hover .quick {
-    visibility: visible;
-  }
-
   .q-btn {
     background: transparent;
     border: 0;
@@ -648,6 +566,10 @@
 
   .q-btn:hover {
     background: var(--gm-line);
+  }
+
+  .q-btn.danger {
+    color: var(--gm-danger);
   }
 
   .q-btn.danger:hover {
@@ -686,52 +608,10 @@
       z-index: 5;
     }
 
-    .row {
-      grid-template-columns: 24px 24px minmax(0, 1fr) auto;
-      align-items: start;
-      gap: 0.5rem;
-      padding: 0.65rem 0.85rem 0.65rem 0.5rem;
-    }
-
-    .row-link {
-      grid-template-columns: 1fr;
-      gap: 0.15rem;
-    }
-
-    .sender {
-      font-size: 0.9rem;
-    }
-
-    .subject {
-      font-size: 0.83rem;
-      font-weight: 400;
-      color: var(--gm-text);
-    }
-
-    .row.unread .subject {
-      font-weight: 700;
-      color: var(--gm-text);
-    }
-
-    .time {
-      text-align: right;
-      font-size: 0.72rem;
-      padding-top: 2px;
-    }
-
-    .star,
     .cb {
-      width: 20px;
-      height: 20px;
+      width: 22px;
+      height: 22px;
       margin-top: 2px;
-    }
-
-    .star {
-      padding: 0;
-    }
-
-    .quick {
-      display: none;
     }
 
     .range {

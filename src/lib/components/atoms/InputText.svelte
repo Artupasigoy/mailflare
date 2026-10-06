@@ -6,6 +6,7 @@
   export let readonly = false;
   export let name = '';
   export let required = false;
+  export let ariaLabel = '';
 </script>
 
 <input
@@ -17,6 +18,7 @@
   {placeholder}
   {readonly}
   {required}
+  aria-label={ariaLabel || undefined}
 />
 
 <style>
