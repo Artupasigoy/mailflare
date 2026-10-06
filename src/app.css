@@ -41,6 +41,11 @@
   --mobile-nav-height: 5rem;
 }
 
+.signature-bg {
+  background: var(--gradient-signature);
+  color: #fff;
+}
+
 /* ── Gmail-style tokens (dipakai GmailShell / GmailInbox / GmailEmail) ── */
 :root {
   --gm-bg: #ffffff;

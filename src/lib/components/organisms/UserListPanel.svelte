@@ -777,20 +777,17 @@
   <button class="modal-backdrop" type="button" aria-label="Close bulk create modal" on:click={closeBulkModal}></button>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-create-title">
     <div class="modal-card">
-      <header class="modal-head">
-        <div>
-          <h3 id="bulk-create-title">Buat User Massal</h3>
-          <p class="text-muted">Satu username per baris (atau dipisah spoma/koma). Maks 100 user.</p>
-        </div>
-        <button class="icon-action" type="button" aria-label="Tutup" on:click={closeBulkModal}>
-          <Icon name="close" size={18} />
-        </button>
-      </header>
+      <div class="modal-head">
+        <h3 id="bulk-create-title">Buat User Massal</h3>
+        <p class="text-muted">Satu username per baris (atau dipisah spasi/koma). Maks 100 user.</p>
+      </div>
 
       {#if bulkCredentials.length === 0}
+        <form class="modal-body modal-form" on:submit|preventDefault={handleBulkCreate}>
         <label class="field">
-          <span>Daftar username</span>
+          <label for="bulk-usernames">Daftar username</label>
           <textarea
+            id="bulk-usernames"
             class="bulk-textarea"
             rows="8"
             bind:value={bulkUsernames}
@@ -806,13 +803,15 @@
           </ul>
         {/if}
 
-        <div class="modal-actions">
-          <Button variant="secondary" on:click={closeBulkModal}>Batal</Button>
-          <Button disabled={bulkPending || bulkUsernames.trim().length === 0} on:click={handleBulkCreate}>
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" disabled={bulkPending} on:click={closeBulkModal}>Batal</button>
+          <button class="btn-submit signature-bg" type="submit" disabled={bulkPending || bulkUsernames.trim().length === 0}>
             {bulkPending ? 'Membuat...' : 'Buat User'}
-          </Button>
+          </button>
         </div>
+        </form>
       {:else}
+        <div class="modal-body">
         <p class="text-muted">{bulkCredentials.length} user berhasil dibuat{bulkSkipped.length > 0 ? `, ${bulkSkipped.length} dilewati` : ""}.</p>
 
         <div class="bulk-result">
@@ -835,15 +834,18 @@
         {#if bulkSkipped.length > 0}
           <p class="text-muted">Dilewati: {bulkSkipped.join('; ')}</p>
         {/if}
+        </div>
 
-        <div class="modal-actions">
-          <Button variant="secondary" on:click={copyBulkAll}>Copy semua</Button>
-          <Button
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" on:click={copyBulkAll}>Copy semua</button>
+          <button
+            class="btn-submit signature-bg"
+            type="button"
             on:click={() => {
               bulkCredentials = [];
               bulkSkipped = [];
             }}
-          >Tutup</Button>
+          >Tutup</button>
         </div>
       {/if}
     </div>
@@ -1058,12 +1060,25 @@
 
   .bulk-textarea {
     width: 100%;
-    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 55%);
-    border-radius: var(--radius-md);
-    padding: var(--space-3);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 0;
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--color-surface-low), white 35%);
+    padding: 0.9rem 0.9rem;
+    font: inherit;
     font-size: 0.85rem;
+    color: var(--color-text);
     resize: vertical;
+    outline: none;
+  }
+
+  .bulk-textarea:focus {
+    background: var(--color-surface-card);
+  }
+
+  .bulk-textarea::placeholder {
+    color: var(--color-text-muted);
+    opacity: 0.7;
+    font-weight: 400;
   }
 
   .bulk-errors {
