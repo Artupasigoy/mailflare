@@ -45,6 +45,8 @@
   let bulkPending = false;
   let bulkModalOpen = false;
   let bulkUsernames = '';
+  let bulkPasswordMode: 'random' | 'same' = 'random';
+  let bulkSharedPassword = '';
   let bulkErrors: string[] = [];
   let bulkCredentials: Array<{ username: string; email: string; password: string }> = [];
   let bulkSkipped: string[] = [];
@@ -281,7 +283,11 @@
       const response = await fetch('/api/users/bulk', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode: 'create', usernames: bulkUsernames })
+        body: JSON.stringify({
+          mode: 'create',
+          usernames: bulkUsernames,
+          ...(bulkPasswordMode === 'same' && bulkSharedPassword.trim() ? { password: bulkSharedPassword.trim() } : {})
+        })
       });
       const payload = (await response.json().catch(() => null)) as
         | {
@@ -1079,6 +1085,22 @@
     color: var(--color-text-muted);
     opacity: 0.7;
     font-weight: 400;
+  }
+
+  .bulk-select {
+    width: 100%;
+    border: 1px solid color-mix(in srgb, var(--color-outline), transparent 55%);
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--color-surface-low), white 35%);
+    padding: 0.75rem 0.875rem;
+    font: inherit;
+    color: var(--color-text);
+    outline: none;
+  }
+
+  .bulk-select:focus {
+    border-color: color-mix(in srgb, var(--color-primary-500), var(--color-surface-card) 45%);
+    background: var(--color-surface-card);
   }
 
   .bulk-errors {

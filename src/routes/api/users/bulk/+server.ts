@@ -52,7 +52,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   }
 
   const payload = (await request.json().catch(() => null)) as
-    | { mode?: string; usernames?: unknown; userIds?: unknown }
+    | { mode?: string; usernames?: unknown; userIds?: unknown; password?: string }
     | null;
   const mode = payload?.mode?.trim().toLowerCase();
 
@@ -63,6 +63,11 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
         return json({ error: 'Tidak ada username yang valid' }, { status: 400 });
       }
 
+      const sharedPassword = (payload?.password ?? '').trim();
+      if (sharedPassword && (sharedPassword.length < 8 || sharedPassword.length > 128)) {
+        return json({ error: 'Password bersama harus 8-128 karakter' }, { status: 400 });
+      }
+
       const domain = sanitizeDomain(platform?.env?.MAILFLARE_USER_DOMAIN ?? '');
       if (!isValidDomain(domain)) {
         return json({ error: 'MAILFLARE_USER_DOMAIN belum dikonfigurasi' }, { status: 500 });
@@ -70,6 +75,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
 
       const invalid: Array<{ username: string; reason: string }> = [];
       const seen = new Set<string>();
+      let sharedHash = '';
       const prepared: Array<{ username: string; email: string; password: string; passwordHash: string }> = [];
 
       for (const username of rawList) {
@@ -85,8 +91,11 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
         seen.add(username);
 
         // Password di-hash tepat satu kali per user (PBKDF2 mahal, jangan diulang).
-        const password = generateSecurePassword();
-        const passwordHash = await hashPassword(password);
+        const password = sharedPassword || generateSecurePassword();
+        const passwordHash = sharedHash || (await hashPassword(password));
+        if (sharedPassword && !sharedHash) {
+          sharedHash = passwordHash;
+        }
         prepared.push({ username, email: `${username}@${domain}`, password, passwordHash });
       }
 
