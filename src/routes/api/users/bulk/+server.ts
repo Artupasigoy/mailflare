@@ -1,6 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createUsersInDb, deleteTrashedUsersInDb, restoreUserInDb, softDeleteUsersInDb } from '$lib/server/db';
+import {
+  addUserLabelsInDb,
+  createUsersInDb,
+  deleteTrashedUsersInDb,
+  restoreUserInDb,
+  softDeleteUsersInDb
+} from '$lib/server/db';
 import { generateSecurePassword, hashPassword } from '$lib/server/security';
 import { sendUserCreatedTelegramNotification } from '$lib/server/telegram';
 
@@ -52,7 +58,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   }
 
   const payload = (await request.json().catch(() => null)) as
-    | { mode?: string; usernames?: unknown; userIds?: unknown; password?: string }
+    | { mode?: string; usernames?: unknown; userIds?: unknown; password?: string; labelIds?: unknown }
     | null;
   // mode dinormalisasi ke huruf kecil (mis. "softDelete" -> "softdelete") agar
   // cocok dengan perbandingan di bawah.
@@ -243,6 +249,24 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       }
 
       return json({ ok: true, reset, skipped });
+    }
+
+    if (mode === 'addlabels') {
+      const userIds = Array.isArray(payload?.userIds)
+        ? payload.userIds.map((id) => String(id)).filter(Boolean).slice(0, MAX_BULK)
+        : [];
+      const labelIds = Array.isArray(payload?.labelIds)
+        ? payload.labelIds.map((id) => String(id)).filter(Boolean).slice(0, 50)
+        : [];
+      if (userIds.length === 0) {
+        return json({ error: 'Tidak ada user yang dipilih' }, { status: 400 });
+      }
+      if (labelIds.length === 0) {
+        return json({ error: 'Pilih minimal satu label' }, { status: 400 });
+      }
+
+      const result = await addUserLabelsInDb(db, userIds, labelIds);
+      return json({ ok: true, added: result.added, users: result.users });
     }
 
     if (mode === 'emptytrash') {

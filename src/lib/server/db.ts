@@ -2961,6 +2961,71 @@ export async function setUserLabelsInDb(
   return { ok: true };
 }
 
+/**
+ * Tambahkan (bukan ganti) label ke banyak user sekaligus. Label yang sudah
+ * menempel dilewati (idempoten). Batas 100 user × 50 label agar hemat free tier.
+ */
+export async function addUserLabelsInDb(
+  db: D1Database | undefined,
+  userIds: string[],
+  labelIds: string[]
+): Promise<{ ok: boolean; added: number; users: number }> {
+  if (!db) {
+    throw new Error('DB binding is required for update operation');
+  }
+
+  const uniqueUsers = Array.from(new Set((userIds ?? []).map((id) => String(id)).filter(Boolean))).slice(0, 100);
+  const uniqueLabels = Array.from(new Set((labelIds ?? []).map((id) => String(id)).filter(Boolean))).slice(0, 50);
+  if (uniqueUsers.length === 0 || uniqueLabels.length === 0) {
+    return { ok: true, added: 0, users: 0 };
+  }
+
+  const labelPlaceholders = uniqueLabels.map(() => '?').join(', ');
+  const { results: labelRows } = await db
+    .prepare(`SELECT id FROM labels WHERE id IN (${labelPlaceholders})`)
+    .bind(...uniqueLabels)
+    .all<{ id: string }>();
+  const validLabels = (labelRows ?? []).map((row) => String(row.id));
+  if (validLabels.length === 0) {
+    return { ok: true, added: 0, users: 0 };
+  }
+
+  const userPlaceholders = uniqueUsers.map(() => '?').join(', ');
+  const { results: userRows } = await db
+    .prepare(`SELECT id FROM users WHERE id IN (${userPlaceholders})`)
+    .bind(...uniqueUsers)
+    .all<{ id: string }>();
+  const validUsers = (userRows ?? []).map((row) => String(row.id));
+  if (validUsers.length === 0) {
+    return { ok: true, added: 0, users: 0 };
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (const userId of validUsers) {
+    for (const labelId of validLabels) {
+      statements.push(
+        db
+          .prepare(
+            'INSERT OR IGNORE INTO user_labels (user_id, label_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
+          )
+          .bind(userId, labelId)
+      );
+    }
+  }
+
+  let added = 0;
+  const chunkSize = 50;
+  for (let i = 0; i < statements.length; i += chunkSize) {
+    const chunk = statements.slice(i, i + chunkSize);
+    const results = await db.batch(chunk);
+    for (const result of results) {
+      added += Number((result as { meta?: { changes?: number } })?.meta?.changes ?? 0);
+    }
+  }
+
+  return { ok: true, added, users: validUsers.length };
+}
+
 const dashboardOverviewFallback: DashboardDto = {
   generatedAt: new Date().toISOString(),
   metrics: [

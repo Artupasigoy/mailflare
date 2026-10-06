@@ -160,7 +160,7 @@ Email action: `star | delete | untrash | read | unread`.
 - `GET /api/users/:userId/inbox`, `GET|PATCH /api/users/:userId/emails/:id`, `POST /api/users/:userId/emails/bulk`, `POST /api/users/:userId/trash/empty`.
 - `GET /api/dashboard`.
 - `GET|PATCH /api/worker-settings`, `GET /api/worker-settings/api-key`, `POST .../api-key/generate`, `POST .../api-key/regenerate`, `POST /api/worker-settings/connect-webhook`, `POST /api/worker-settings/test-telegram`.
-- **Label**: `GET|POST /api/labels`, `PATCH|DELETE /api/labels/:labelId`. Body bisa menyertakan `visible: boolean` (tampil/sembunyi). Assign label ke user lewat `PATCH /api/users/:userId` body `{ labelIds: string[] }` (mengganti seluruh set label user).
+- **Label**: `GET|POST /api/labels`, `PATCH|DELETE /api/labels/:labelId`. Body bisa menyertakan `visible: boolean` (tampil/sembunyi). Assign label ke user lewat `PATCH /api/users/:userId` body `{ labelIds: string[] }` (mengganti seluruh set label user). Tambah label ke banyak user lewat `POST /api/users/bulk` body `{ mode: 'addLabels', userIds: string[], labelIds: string[] }` (menambah tanpa menghapus; `INSERT OR IGNORE`).
 - **Backup/Restore** (owner-only, wajib password owner sebagai re-auth):
   - `POST /api/backup/export` body `{ password, passphrase, scope: 'full'|'email'|'account' }` → `{ envelope }` (file terenkripsi AES-GCM-256; passphrase via PBKDF2-SHA256; unduh di client). Rate limit 5/10 menit.
   - `POST /api/backup/restore` body `{ password, passphrase, mode: 'merge'|'replace', envelope }`, header `x-mailflare-confirm: restore-replace` untuk mode replace → `{ summary }`. Rate limit 3/10 menit. Membuat tabel via DDL idempoten bila DB baru (pindah akun Cloudflare).

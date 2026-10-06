@@ -29,6 +29,8 @@
       bulkModalOpen = false;
       resetModalOpen = false;
       labelModalOpen = false;
+      bulkLabelModalOpen = false;
+      bulkLabelSelection = [];
       resetForm();
       bulkCredentials = [];
       bulkSkipped = [];
@@ -76,6 +78,9 @@
   let labelTargetUser: UserDto | null = null;
   let labelSelection: string[] = [];
   let labelPending = false;
+  // Bulk tambah label ke banyak user terpilih
+  let bulkLabelModalOpen = false;
+  let bulkLabelSelection: string[] = [];
   let allSelected = false;
   let generatedCredentials: {
     username: string;
@@ -185,6 +190,48 @@
     resetPasswordMode = 'random';
     resetSharedPassword = '';
     resetModalOpen = true;
+  }
+
+  function openBulkLabelModal() {
+    if (bulkPending || selectedIds.length === 0 || labels.length === 0) return;
+    bulkLabelSelection = [];
+    bulkLabelModalOpen = true;
+  }
+
+  function toggleBulkLabelSelection(labelId: string) {
+    bulkLabelSelection = bulkLabelSelection.includes(labelId)
+      ? bulkLabelSelection.filter((id) => id !== labelId)
+      : [...bulkLabelSelection, labelId];
+  }
+
+  async function handleBulkAddLabels() {
+    if (bulkPending || selectedIds.length === 0 || bulkLabelSelection.length === 0) return;
+    bulkPending = true;
+    listMessage = '';
+    try {
+      const response = await fetch('/api/users/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'addLabels', userIds: selectedIds, labelIds: bulkLabelSelection })
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; added?: number; users?: number }
+        | null;
+      if (!response.ok) {
+        listMessage = payload?.error ?? 'Gagal menambahkan label.';
+        return;
+      }
+      listMessage = `Label ditambahkan ke ${payload?.users ?? 0} user (${payload?.added ?? 0} label).`;
+      toastStore.success('Label ditambahkan');
+      bulkLabelModalOpen = false;
+      bulkLabelSelection = [];
+      selectedIds = [];
+      dispatch('userchanged');
+    } catch {
+      listMessage = 'Gagal menghubungi server.';
+    } finally {
+      bulkPending = false;
+    }
   }
 
   async function handleBulkResetPassword() {
@@ -795,6 +842,12 @@
             Pulihkan ({selectedDisabled})
           </button>
         {/if}
+        {#if selectedIds.length > 0 && labels.length > 0}
+          <button class="bulk-btn" type="button" disabled={bulkPending} on:click={openBulkLabelModal}>
+            <Icon name="sell" size={16} />
+            Tambah Label ({selectedIds.length})
+          </button>
+        {/if}
       {/if}
     </div>
 
@@ -1271,6 +1324,55 @@
           <button class="btn-cancel" type="button" disabled={labelPending} on:click={() => (labelModalOpen = false)}>Batal</button>
           <button class="btn-submit signature-bg" type="button" disabled={labelPending} on:click={saveUserLabels}>
             {labelPending ? 'Menyimpan...' : 'Simpan Label'}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if bulkLabelModalOpen}
+  <button class="modal-backdrop" type="button" aria-label="Tutup" on:click={() => !bulkPending && (bulkLabelModalOpen = false)}></button>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-label-title">
+    <div class="modal-card">
+      <button class="modal-close" type="button" aria-label="Tutup" title="Tutup" disabled={bulkPending} on:click={() => (bulkLabelModalOpen = false)}>
+        <Icon name="close" size={18} />
+      </button>
+      <div class="modal-head">
+        <h3 id="bulk-label-title">Tambah Label Massal</h3>
+        <p class="text-muted">{selectedIds.length} user terpilih. Label yang dipilih akan ditambahkan (label lama tetap tersimpan).</p>
+      </div>
+      <div class="modal-body">
+        <div class="label-pick">
+          {#each labels as label (label.id)}
+            <label class="label-pick-item">
+              <input
+                type="checkbox"
+                class="cb-lg"
+                checked={bulkLabelSelection.includes(label.id)}
+                on:change={() => toggleBulkLabelSelection(label.id)}
+              />
+              <span class={`row-label tone-${label.color} ${label.visible === false ? 'is-hidden-label' : ''}`}>
+                <span class="rdot"></span>
+                {label.name}{label.visible === false ? ' (disembunyikan)' : ''}
+              </span>
+            </label>
+          {/each}
+        </div>
+
+        {#if listMessage}
+          <p class="text-muted">{listMessage}</p>
+        {/if}
+
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" disabled={bulkPending} on:click={() => (bulkLabelModalOpen = false)}>Batal</button>
+          <button
+            class="btn-submit signature-bg"
+            type="button"
+            disabled={bulkPending || bulkLabelSelection.length === 0}
+            on:click={handleBulkAddLabels}
+          >
+            {bulkPending ? 'Menyimpan...' : `Tambah Label (${bulkLabelSelection.length})`}
           </button>
         </div>
       </div>

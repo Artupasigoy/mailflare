@@ -135,5 +135,11 @@ Permintaan & implementasi:
 - **Deploy**: `npm run deploy` sukses → **Current Version ID `7ef3ce98-c82f-45db-8c16-b78de1bb7fca`** (2026-10-06). Migrasi D1 `ALTER TABLE labels ADD COLUMN visible INTEGER NOT NULL DEFAULT 1` diterapkan ke remote (kolom terverifikasi). `/api/health` OK.
 - **Catatan keamanan**: token API Cloudflare sempat dibagikan di chat saat deploy → **WAJIB di-rotate**.
 
+### 2026-10-07 — Sesi 6 (bulk tambah label ke banyak user)
+- **Bulk tambah label**: saat beberapa user dicentang di User List, muncul tombol **Tambah Label (n)** di toolbar bulk (hanya bila ada label). Modal `Tambah Label Massal` menampilkan pilihan label (checkbox) → `POST /api/users/bulk { mode:'addLabels', userIds, labelIds }`.
+- **DB**: fungsi baru `addUserLabelsInDb` (menambah tanpa menghapus; dedup user/label; `INSERT OR IGNORE`; batch 50/batch, batas 100 user × 50 label) di `db.ts`.
+- Komponen `UserListPanel.svelte`: state `bulkLabelModalOpen`, `bulkLabelSelection`, fungsi `openBulkLabelModal`/`toggleBulkLabelSelection`/`handleBulkAddLabels`; Escape & reset menutup modal.
+- Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **44/44**, `npm run build` sukses.
+
 ### <tambahkan sesi berikutnya di sini>
 - …
