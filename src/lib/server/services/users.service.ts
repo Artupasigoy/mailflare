@@ -1,6 +1,9 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import type { EmailDetailDto, EmailDto, UserDto } from '$lib/types/dto';
 import {
+  countUsersBreakdownFromDb,
+  countUsersFromDb,
+  purgeExpiredSoftDeletedUsersInDb,
   getEmailByIdFromDb,
   getUserArchivedEmailCountFromDb,
   getUserByIdFromDb,
@@ -8,12 +11,21 @@ import {
   getUserTrashFromDb,
   getUsersFromDb,
   purgeExpiredTrashInDb,
+  type GetUsersOptions,
   searchUserInboxFromDb,
   type SearchUserInboxResult
 } from '$lib/server/db';
 
-export async function getUsers(event: RequestEvent): Promise<UserDto[]> {
-  return getUsersFromDb(event.platform?.env?.DB);
+export async function getUsers(event: RequestEvent, options: GetUsersOptions = {}): Promise<UserDto[]> {
+  return getUsersFromDb(event.platform?.env?.DB, options);
+}
+
+export async function countUsers(event: RequestEvent, options: GetUsersOptions = {}): Promise<number> {
+  return countUsersFromDb(event.platform?.env?.DB, options);
+}
+
+export async function getUserCountBreakdown(event: RequestEvent, options: GetUsersOptions = {}) {
+  return countUsersBreakdownFromDb(event.platform?.env?.DB, options);
 }
 
 export async function getUserInbox(event: RequestEvent, userId: string): Promise<EmailDto[]> {
@@ -45,6 +57,24 @@ export async function purgeExpiredTrashThrottled(event: RequestEvent): Promise<v
     await purgeExpiredTrashInDb(event.platform?.env?.DB);
   } catch {
     // Purge adalah housekeeping; kegagalan tidak boleh mengganggu request.
+  }
+}
+
+// Retensi user soft-deleted: hapus permanen yang lewat 30 hari (throttle 10 menit).
+const SOFT_DELETE_PURGE_INTERVAL_MS = 10 * 60 * 1000;
+let lastSoftDeletePurgeAt = 0;
+
+export async function purgeExpiredSoftDeletedUsersThrottled(event: RequestEvent): Promise<void> {
+  const now = Date.now();
+  if (now - lastSoftDeletePurgeAt < SOFT_DELETE_PURGE_INTERVAL_MS) {
+    return;
+  }
+  lastSoftDeletePurgeAt = now;
+
+  try {
+    await purgeExpiredSoftDeletedUsersInDb(event.platform?.env?.DB);
+  } catch {
+    // Housekeeping; kegagalan tidak boleh mengganggu request.
   }
 }
 

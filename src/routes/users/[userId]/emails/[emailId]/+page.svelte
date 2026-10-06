@@ -5,13 +5,15 @@
   import MailboxTopbar from '$lib/components/organisms/MailboxTopbar.svelte';
   import GmailEmail from '$lib/components/organisms/GmailEmail.svelte';
   import GmailTabs from '$lib/components/organisms/GmailTabs.svelte';
+  import BackLink from '$lib/components/molecules/BackLink.svelte';
   import Badge from '$lib/components/atoms/Badge.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import EmailBodyViewer from '$lib/components/molecules/EmailBodyViewer.svelte';
-  import { page } from '$app/stores';
+  import { page, navigating } from '$app/stores';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
+  import { toastStore } from '$lib/stores/toast.store';
 
   export let data: PageData;
   $: adminEmail = $page.data.sessionEmail ?? null;
@@ -39,7 +41,10 @@
   type MailboxView = 'inbox' | 'starred' | 'trash';
   $: rawView = $page.url.searchParams.get('view');
   $: view = (rawView === 'starred' ? 'starred' : rawView === 'trash' ? 'trash' : 'inbox') as MailboxView;
+  $: fromAllEmails = $page.url.searchParams.get('from') === 'all';
   $: inboxHrefBase = data.inboxOnly ? '/me/inbox' : `/users/${data.userId}/inbox`;
+  $: sourceHref = fromAllEmails ? '/users/emails' : inboxHrefBase;
+  $: sourceLabel = fromAllEmails ? 'Kembali ke Semua Email' : view === 'trash' ? 'Kembali ke Sampah' : view === 'starred' ? 'Kembali ke Berbintang' : 'Kembali ke Kotak Masuk';
   $: inboxHref =
     data.inboxOnly || view === 'inbox'
       ? inboxHrefBase
@@ -51,7 +56,7 @@
       return;
     }
 
-    if (action === 'delete' && !confirm('Soft delete email ini?')) {
+    if (action === 'delete' && !confirm('Pindahkan email ini ke Sampah?')) {
       return;
     }
 
@@ -74,19 +79,21 @@
       };
 
       if (!response.ok) {
-        actionError = payload.error ?? 'Failed to update email status.';
+        actionError = payload.error ?? 'Gagal memperbarui status email.';
         return;
       }
 
       if (action === 'star') {
         isStarred = typeof payload.email?.isStarred === 'boolean' ? payload.email.isStarred : !isStarred;
-        actionMessage = isStarred ? 'Email starred.' : 'Star removed.';
+        actionMessage = isStarred ? 'Bintang ditambahkan.' : 'Bintang dihapus.';
+        toastStore.success(isStarred ? 'Bintang ditambahkan' : 'Bintang dihapus');
         return;
       }
 
+      toastStore.success('Email dipindahkan ke Sampah');
       await goto(inboxHref);
     } catch {
-      actionError = 'Unable to reach server. Please try again.';
+      actionError = 'Gagal menghubungi server. Coba lagi.';
     } finally {
       actionPending = false;
     }
@@ -101,10 +108,16 @@
       showRefresh={false}
     />
     <div class="content">
+      {#if $navigating}
+        <p class="loading-hint" role="status">Memuat...</p>
+      {/if}
+      <div class="back-row">
+        <BackLink href={sourceHref} label={sourceLabel} />
+      </div>
       <div class="tab-wrap">
         <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} />
       </div>
-      <GmailEmail email={email} apiBase="/api/me/emails" backHref={inboxHref} />
+      <GmailEmail email={email} apiBase="/api/me/emails" backHref={sourceHref} view={view} />
     </div>
   </section>
 {:else}
@@ -119,16 +132,34 @@
         mailboxEmail={data.currentUser?.email ?? data.userId}
       />
       <div class="content">
+        {#if $navigating}
+          <p class="loading-hint" role="status">Memuat...</p>
+        {/if}
+        <div class="back-row">
+          <BackLink href={sourceHref} label={sourceLabel} />
+        </div>
         <div class="tab-wrap">
           <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} />
         </div>
-        <GmailEmail email={email} apiBase={actionApiBase} backHref={inboxHref} />
+        <GmailEmail email={email} apiBase={actionApiBase} backHref={sourceHref} view={view} recipientLabel={`kepada ${email.recipient ?? data.currentUser?.email ?? ""}`} />
       </div>
     </section>
   </div>
 {/if}
 
 <style>
+  .loading-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.82rem;
+    color: var(--gm-blue, #1a73e8);
+    font-weight: 600;
+  }
+
+  .back-row {
+    display: flex;
+    justify-content: flex-start;
+  }
+
   .tab-wrap {
     background: var(--gm-bg);
     border: 1px solid var(--gm-border);

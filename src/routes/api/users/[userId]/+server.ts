@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getUserByIdFromDb, softDeleteUserInDb, updateUserInDb } from '$lib/server/db';
+import { deleteUserPermanentlyInDb, getUserByIdFromDb, softDeleteUserInDb, updateUserInDb, restoreUserInDb } from '$lib/server/db';
 import { generateSecurePassword, hashPassword } from '$lib/server/security';
 
 export const GET: RequestHandler = async ({ platform, params, locals }) => {
@@ -26,8 +26,41 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
     return json({ error: 'Expected JSON body' }, { status: 400 });
   }
 
-  const body = (await request.json()) as { email?: string; displayName?: string; password?: string; resetPassword?: boolean; telegramEnabled?: boolean };
+  const body = (await request.json()) as {
+    email?: string;
+    displayName?: string;
+    password?: string;
+    resetPassword?: boolean;
+    restore?: boolean;
+    telegramEnabled?: boolean;
+  };
+  const restore = body.restore === true;
   const resetPassword = body.resetPassword === true;
+
+  if (restore) {
+    try {
+      const generatedPassword = generateSecurePassword(18);
+      const passwordHash = await hashPassword(generatedPassword);
+      const result = await restoreUserInDb(platform?.env?.DB, params.userId, passwordHash);
+      if (!result.restored) {
+        const message =
+          result.reason === 'protected_owner'
+            ? 'Owner tidak bisa di-restore'
+            : result.reason === 'not_deleted'
+              ? 'User tidak dalam status dihapus'
+              : 'User not found';
+        return json({ error: message }, { status: result.reason === 'not_found' ? 404 : 400 });
+      }
+
+      return json({ ok: true, user: { id: params.userId, email: result.email }, password: generatedPassword });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('DB binding is required')) {
+        return json({ error: 'Database is not configured' }, { status: 503 });
+      }
+      return json({ error: 'Failed to restore user' }, { status: 500 });
+    }
+  }
   const email = body.email?.trim().toLowerCase();
   const displayName = body.displayName?.trim();
   const password = body.password;
@@ -98,7 +131,7 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.toLowerCase().includes('unique') || message.toLowerCase().includes('users.email')) {
-      return json({ error: 'Email already exists' }, { status: 409 });
+      return json({ error: 'Email sudah dipakai. Pulihkan dulu atau hapus permanen user lama bila user lama ada di Sampah.' }, { status: 409 });
     }
     if (message.includes('DB binding is required')) {
       return json({ error: 'Database is not configured' }, { status: 503 });
@@ -123,6 +156,20 @@ export const DELETE: RequestHandler = async ({ platform, params, request, locals
   }
 
   try {
+    if (confirmation === 'delete-user') {
+      const result = await deleteUserPermanentlyInDb(platform?.env?.DB, params.userId);
+      if (!result.deleted && result.reason === 'not_found') {
+        return json({ error: 'User not found' }, { status: 404 });
+      }
+      if (!result.deleted && result.reason === 'protected_owner') {
+        return json({ error: 'Owner account cannot be permanently deleted' }, { status: 400 });
+      }
+      if (!result.deleted && result.reason === 'not_in_trash') {
+        return json({ error: 'User harus di Sampah dulu sebelum dihapus permanen' }, { status: 400 });
+      }
+      return json({ ok: true, permanentlyDeleted: true });
+    }
+
     const result = await softDeleteUserInDb(platform?.env?.DB, params.userId);
     if (!result.deleted && result.reason === 'not_found') {
       return json({ error: 'User not found' }, { status: 404 });

@@ -7,53 +7,19 @@
   import Button from '$lib/components/atoms/Button.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
 
-  export let active: 'dashboard' | 'users' | 'worker' = 'dashboard';
+  export let active: 'dashboard' | 'users' | 'worker' | 'emails' = 'dashboard';
   export let adminEmail: string | null = null;
 
   $: compact = $sidebarCollapsed;
   $: adminInitial = adminEmail ? adminEmail.charAt(0).toUpperCase() : '';
   $: adminName = adminEmail ? adminEmail.split('@')[0] : '';
 
-  let sidebarElement: HTMLElement | null = null;
   let isMobileViewport = false;
-  let releaseOutsideHandler: (() => void) | null = null;
   let loggingOut = false;
 
-  function bindOutsideCollapse() {
-    releaseOutsideHandler?.();
-    releaseOutsideHandler = null;
-
-    if (typeof window === 'undefined' || compact || isMobileViewport) {
-      return;
-    }
-
-    const handleOutside = (event: MouseEvent | TouchEvent) => {
-      if (compact || isMobileViewport) {
-        return;
-      }
-
-      const target = event.target as Node | null;
-      if (!target || !sidebarElement) {
-        return;
-      }
-
-      const eventPath = 'composedPath' in event ? event.composedPath() : [];
-      if (Array.isArray(eventPath) && sidebarElement && eventPath.includes(sidebarElement)) {
-        return;
-      }
-
-      if (!sidebarElement.contains(target)) {
-        sidebarCollapsed.set(true);
-      }
-    };
-
-    window.addEventListener('mousedown', handleOutside, true);
-    window.addEventListener('touchstart', handleOutside, true);
-    releaseOutsideHandler = () => {
-      window.removeEventListener('mousedown', handleOutside, true);
-      window.removeEventListener('touchstart', handleOutside, true);
-    };
-  }
+  // Catatan: tidak ada lagi auto-collapse saat klik di luar sidebar.
+  // Sidebar hanya berubah lewat tombol hamburger (AppTopbar) atau otomatis di mobile.
+  // Auto-collapse sebelumnya bikin halaman daftar email terasa "loncat" saat diklik.
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -69,31 +35,26 @@
   onMount(() => {
     const media = window.matchMedia('(max-width: 960px)');
     isMobileViewport = media.matches;
-    bindOutsideCollapse();
 
     const handleViewportChange = (event: MediaQueryListEvent) => {
       isMobileViewport = event.matches;
       if (event.matches) {
         sidebarCollapsed.set(true);
       }
-      bindOutsideCollapse();
     };
 
     media.addEventListener('change', handleViewportChange);
     return () => {
       media.removeEventListener('change', handleViewportChange);
-      releaseOutsideHandler?.();
     };
   });
-
-  $: bindOutsideCollapse();
 </script>
 
 {#if !compact}
   <button class="backdrop" type="button" aria-label="Collapse sidebar overlay" on:click={() => sidebarCollapsed.set(true)}></button>
 {/if}
 
-<aside bind:this={sidebarElement} class={`sidebar ${compact ? 'collapsed' : ''}`}>
+<aside class={`sidebar ${compact ? 'collapsed' : ''}`}>
   <div class="sidebar-header">
     <div class="brand-wrap">
       <BrandLockup compact={compact} />
@@ -102,6 +63,7 @@
 
   <nav class="nav">
     <SidebarNavItem href="/dashboard" icon="dashboard" label="Dashboard" active={active === 'dashboard'} compact={compact} />
+    <SidebarNavItem href="/users/emails" icon="move_to_inbox" label="Semua Email" active={active === 'emails'} compact={compact} />
     <SidebarNavItem href="/users" icon="group" label="User List" active={active === 'users'} compact={compact} />
     <SidebarNavItem href="/worker/settings" icon="settings_input_component" label="Worker Settings" active={active === 'worker'} compact={compact} />
   </nav>

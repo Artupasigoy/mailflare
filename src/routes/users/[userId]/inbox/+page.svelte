@@ -6,6 +6,7 @@
   import MailboxTopbar from '$lib/components/organisms/MailboxTopbar.svelte';
   import GmailInbox from '$lib/components/organisms/GmailInbox.svelte';
   import GmailTabs from '$lib/components/organisms/GmailTabs.svelte';
+  import BackLink from '$lib/components/molecules/BackLink.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
@@ -86,6 +87,9 @@
           </button>
         </div>
       {:else}
+        <div class="back-row">
+          <BackLink href="/users" label="Kembali ke User List" />
+        </div>
         <div class="tab-wrap">
           <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} searchQuery={searchQuery} />
         </div>
@@ -108,7 +112,6 @@
     <section class="main" class:sidebar-collapsed={$sidebarCollapsed}>
       <AppTopbar
         title="Inbox"
-        variant="minimal"
         bind:searchQuery
         searchPlaceholder="Cari email..."
         onSearch={handleSubmit}
@@ -128,6 +131,9 @@
             </button>
           </div>
         {:else}
+          <div class="back-row">
+            <BackLink href="/users" label="Kembali ke User List" />
+          </div>
           <div class="tab-wrap">
             <GmailTabs view={view} basePath={`/users/${data.userId}/inbox`} searchQuery={searchQuery} />
           </div>
@@ -164,6 +170,11 @@
 
   .inbox-only-main .content {
     align-content: start;
+  }
+
+  .back-row {
+    display: flex;
+    justify-content: flex-start;
   }
 
   .tab-wrap {

@@ -1484,8 +1484,8 @@ function escapePipeCharacter(value: string): string {
 function isMarkdownV2Escaped(value: string): boolean {
   // Jika tidak ada special character yang belum di-escape, maka sudah valid
   // Special characters harus di-escape dengan backslash
-  const unescapedPattern = /(?<!\\)([_*\[\]()~`>#+\-=|{}.!\\])/;
-  return !unescapedPattern.test(value);
+  const stripped = value.replace(/\\./g, '');
+  return !/([_*\[\]()~`>#+\-=|{}.!])/.test(stripped);
 }
 
 function escapeCode(value: string): string {

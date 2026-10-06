@@ -317,6 +317,7 @@ cloud-mail-flare/
 | [integrasi-telegram-bot.md](./docs/integrasi-telegram-bot.md)           | Setup bot Telegram secara detail         |
 | [member-inbox-only.md](./docs/member-inbox-only.md)                     | Penjelasan mode Member / inbox-only      |
 | [api-key-public-api.md](./docs/api-key-public-api.md)                   | Spesifikasi + UAT terpadu API key & public API v1 |
+| [observability.md](./docs/observability.md)                             | Health check, tail logs, backup D1, checklist deploy |
 
 ---
 
@@ -324,7 +325,7 @@ cloud-mail-flare/
 
 - File `.dev.vars` **jangan pernah di-push ke GitHub** (sudah ada di `.gitignore`).
 - Saat build di **Windows**, project otomatis menjalankan script `prebuild` untuk membersihkan cache agar tidak error.
-- Hapus pengguna hanya bisa dilakukan jika tidak ada data email atau sesi login yang masih terhubung.
+- Hapus pengguna (masuk Sampah) mengikuti alur: aktif → di-`Hapus` ke Sampah → `Pulihkan` atau `Hapus Permanen` (email+sesi+user terhapus). Purge otomatis 30 hari.
 - `schema.sql` adalah sumber kebenaran (source of truth) untuk struktur database — jangan diubah sembarangan.
 - **Jangan pernah commit** `wrangler.toml`, `.dev.vars`, API token, atau kunci Turnstile — semuanya sudah diabaikan `.gitignore`.
 - Sebelum mengubah tampilan, baca **[agent.md](./agent.md)** agar tetap konsisten dengan gaya Gmail & token warna `--gm-*`.

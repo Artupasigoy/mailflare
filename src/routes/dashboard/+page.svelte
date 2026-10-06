@@ -112,7 +112,6 @@
       { key: 'read', label: 'Read', value: p.read, tone: 'success' as const },
       { key: 'unread', label: 'Unread', value: p.unread, tone: 'warning' as const },
       { key: 'starred', label: 'Starred', value: p.starred, tone: 'primary' as const },
-      { key: 'archived', label: 'Archived', value: p.archived, tone: 'neutral' as const },
       { key: 'deleted', label: 'Deleted', value: p.deleted, tone: 'danger' as const }
     ];
     return segments.filter((seg) => seg.value > 0);
@@ -548,10 +547,23 @@
     font-size: var(--font-size-label-sm);
   }
 
+  /* 3 kotak per baris: 6 metrik jadi 2 baris penuh, rata dan tidak bolong. */
   .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
+  }
+
+  @media (max-width: 1100px) {
+    .kpi-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 620px) {
+    .kpi-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   :global(.kpi-card) {

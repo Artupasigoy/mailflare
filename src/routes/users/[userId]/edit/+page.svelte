@@ -6,6 +6,7 @@
   import InputText from '$lib/components/atoms/InputText.svelte';
   import Checkbox from '$lib/components/atoms/Checkbox.svelte';
   import Button from '$lib/components/atoms/Button.svelte';
+  import { toastStore } from '$lib/stores/toast.store';
   import { page } from '$app/stores';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
@@ -57,13 +58,13 @@
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        errorMessage = payload?.error ?? 'Failed to update user.';
+        errorMessage = payload?.error ?? 'Gagal memperbarui user.';
         return;
       }
 
       await goto('/users');
     } catch {
-      errorMessage = 'Unable to reach server. Please try again.';
+      errorMessage = 'Gagal menghubungi server. Coba lagi.';
     } finally {
       isSubmitting = false;
     }
@@ -74,7 +75,7 @@
       return;
     }
 
-    if (!confirm(`Delete user ${data.user.email}? This action cannot be undone.`)) {
+    if (!confirm(`Hapus permanen user ${data.user.email}? Tindakan ini tidak bisa dibatalkan.`)) {
       return;
     }
 
@@ -100,14 +101,15 @@
         if (payload?.dependencies) {
           errorMessage = `${payload.error ?? 'Delete blocked'} (emails: ${payload.dependencies.emails ?? 0}, sessions: ${payload.dependencies.loginSessions ?? 0})`;
         } else {
-          errorMessage = payload?.error ?? 'Failed to delete user.';
+          errorMessage = payload?.error ?? 'Gagal menghapus user.';
         }
         return;
       }
 
+      toastStore.success('User berhasil diperbarui');
       await goto('/users');
     } catch {
-      errorMessage = 'Unable to reach server. Please try again.';
+      errorMessage = 'Gagal menghubungi server. Coba lagi.';
     } finally {
       isDeleting = false;
     }

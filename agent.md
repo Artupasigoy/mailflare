@@ -1,5 +1,8 @@
 # AGENT NOTES — Gmail Web UI (referensi desain)
 
+> **WAJIB**: Sebelum menambah/mengubah fitur apa pun, baca seluruh aturan di `agent.md` — terutama bagian **"Standar Penamaan (WAJIB)"**, **"Cloudflare Free Tier — WAJIB efisien"**, dan **"Komponen & kode — WAJIB reusable"**. Setiap nama halaman, istilah, komponen, tombol, label, kelas CSS, event, dan endpoint HARUS memakai nama yang sudah ada di daftar tersebut. Dilarang membuat istilah/komponen baru bila padanan sudah ada.
+
+
 Program ini meniru tampilan **Gmail web (desktop & mobile)**. Berikut temuan/ketentuan desain yang harus dipatuhi agar UX-nya "1:1 Gmail".
 
 ## Struktur halaman utama (desktop)
@@ -133,6 +136,12 @@ Sumber: `/home/agentuser/contoh/*.png` (Gmail web desktop, tampilan baru).
 - Ikon `tune` di dalam search pill, help, setelan, aplikasi, titik 3, unduh, buka tab baru, dan archive **sudah dihapus** — jangan ditambahkan kembali.
 - Kartu daftar email dibulatkan hanya di bawah dan tanpa border samping (mengikuti layar penuh).
 
+## Soft delete user (bisa restore + retensi 30 hari)
+- Kolom `users.deleted_at`. Soft delete = `password_hash = NULL` + `deleted_at = NOW()` (**email & nama tetap disimpan** supaya bisa restore). Sesi login direvoke.
+- Restore: `PATCH /api/users/:id { restore: true }` → user aktif lagi + **password baru** (dikembalikan agar admin bisa membagikannya). Bulk: `POST /api/users/bulk { mode:'restore', userIds:[] }`.
+- Purge permanen: `purgeExpiredSoftDeletedUsersInDb()` menghapus user soft-deleted > 30 hari **beserta email & sesinya** (3 query, dijalankan lazy + throttle 10 menit, hanya saat request admin/owner).
+- Hapus permanen langsung (tanpa retensi) tetap tersedia lewat bulk `mode:'delete'` — hanya untuk user tanpa email & tanpa sesi.
+
 ## Retensi Sampah (30 hari) — TIDAK pakai cron
 - Cron **tidak dipakai** (butuh workers.dev subdomain). Purge berjalan **lazy + throttled**.
 - `purgeExpiredTrashThrottled(event)` di `users.service.ts`: memanggil `purgeExpiredTrashInDb()` (DELETE semua email `deleted_at` > 30 hari, **semua user**) maksimal **1x per 10 menit per isolate**.
@@ -161,6 +170,8 @@ Sumber: `/home/agentuser/contoh/*.png` (Gmail web desktop, tampilan baru).
   - `view: 'inbox'|'starred'|'trash'` + `onViewChange` (opsional). Jika `onViewChange` diisi, tab **Kotak Masuk / Berbintang / Sampah** dirender di atas toolbar.
   - `isSearching`, `resultCount`
   - Sudah termasuk: bulk select (indeterminate), bulk tandai baca/belum baca, bulk hapus, checkbox per baris, aksi hover (bintang, tandai baca/belum baca, hapus/pulihkan), pagination 50/halaman, bintang SVG hijau.
+- **Sidebar admin (`AppSidebar`) TIDAK auto-collapse saat klik di luar** — hanya berubah lewat tombol hamburger / otomatis di mobile. Jangan tambahkan lagi perilaku "klik luar = ciutkan", karena halaman daftar email jadi terasa melompat.
+- **`MailRow.svelte`** (molecule) — baris email seragam untuk SEMUA daftar (GmailInbox member/admin + halaman "Semua Email"). Props: `href`, `sender`, `subject`, `snippet`, `receivedAt`, `isRead`, `isStarred`, `recipient`, `showLeading`, `showRecipient`, `showStar`, `showActions`, `selected`. Slot: `leading` (checkbox), `star`, `actions`. Styling pakai token `--gm-*`.
 - **`GmailTabs.svelte`** — tab Kotak Masuk / Berbintang / Sampah (aktif bergaris bawah). Props: `view`, `basePath`, `searchQuery`. Dipakai **di atas** daftar email (admin inbox) **dan** di atas detail email admin, sehingga menu tetap terlihat & active saat membuka email.
 - **`GmailEmail.svelte`** — halaman detail email. Props: `email`, `apiBase`, `backHref`.
 
@@ -183,3 +194,128 @@ Sumber: `/home/agentuser/contoh/*.png` (Gmail web desktop, tampilan baru).
 ## Catatan konsistensi
 - Inbox & detail harus memakai **sidebar dan top bar yang sama** (sudah dimasukkan ke `GmailShell`).
 - Jika ada perubahan fitur, jangan hapus sidebar/top bar; cukup sesuaikan isinya.
+
+---
+
+## Standar Penamaan (WAJIB)
+
+Aturan ini wajib diikuti setiap pengembangan (AI/manusia). Tujuannya: istilah, label, komponen, kelas CSS, event, dan endpoint tidak pernah ganda/berbeda untuk hal yang sama. Kalau butuh istilah baru, tambahkan dulu ke daftar ini.
+
+### Bahasa
+- Semua **teks UI** (label tombol, placeholder, pesan, error, tooltip, konfirmasi) memakai **Bahasa Indonesia**, kecuali istilah teknis yang sudah mapan (`owner`, `member`, `email`, `password` → tetap "password").
+- **Kode** (nama variabel/fungsi/komponen/file) memakai **Bahasa Inggris** dan gaya yang sudah ada.
+- Satu hal = satu sebutan di mana pun (UI, API, docs). Jangan: "Hapus"/"Delete"/"Nonaktifkan" untuk aksi yang sama.
+
+### Kosakata data (state)
+| Konsep | Sebutan resmi | Jangan dipakai untuk hal yang sama |
+|---|---|---|
+| Email baru/belum dibaca | `Belum Dibaca` / `is_read = 0` | unread (di UI), belum baca |
+| Email penting | `Berbintang` / `is_starred` | starred (di UI) |
+| Email dipindahkan ke Sampah | `Sampah` / `deleted_at` | Trash, hapus lunak |
+| Email dipulihkan dari Sampah | `Pulihkan` / `untrash` | restore (di UI) |
+| Penghapusan permanen email | `Hapus Permanen` | delete forever (di UI) |
+| User/email dipindahkan ke Sampah | `Pindahkan ke Sampah` | Hapus (untuk aksi ini), Nonaktifkan, soft delete (di UI) |
+| User dipulihkan dari Sampah | `Pulihkan` | restore (di UI) |
+| Penghapusan permanen user | `Hapus Permanen` | delete user, purge (di UI) |
+| Akun utama | `owner` | admin (untuk peran, di UI) |
+| Akun biasa | `member` | user biasa, collaborator |
+| User aktif/bisa login | `Aktif` | active (di UI) |
+| User di Sampah | `Sampah` (status `disabled`) | dihapus, deleted (di UI) |
+
+### Label tombol & aksi (persis, jangan sinonim)
+- `Pindahkan ke Sampah` — soft delete user/email. Kata `Hapus` HANYA dipakai untuk penghapusan permanen.
+- `Hapus Permanen` — hapus selamanya dari Sampah. TIDAK ADA di luar view Sampah.
+- `Kosongkan Sampah` — hapus permanen semua isi Sampah.
+- `Pulihkan` — kembalikan user/email dari Sampah.
+- `Reset Password` — generate password baru (user tetap aktif).
+- `Tambah User` / `Buat Massal` — pembuatan user.
+- `Edit` — ubah profil user.
+- `Cari`, `Batal`, `Selesai`, `Kirim`, `Salin`.
+- Pesan sukses/error: pola `…berhasil dibuat`, `…dihapus`, `…dipulihkan`, `Gagal <aksi>.`, `Gagal menghubungi server. Coba lagi.`
+
+### Halaman & view
+| Halaman | Route | Komponen utama |
+|---|---|---|
+| Daftar user (admin) | `/users` | `UserListPanel` |
+| Filter status user | `/users?status=all|active|deleted` | `StatusFilter` |
+| View Sampah user | `/users?status=deleted` | sama, `trashView=true` |
+| Inbox user (admin) | `/users/:userId/inbox?view=inbox|starred|trash` | `GmailInbox` |
+| Semua email (admin) | `/users/emails` | `InboxTable` |
+| Inbox member | `/me/inbox?view=...` | `GmailInbox` |
+| Detail email | `/me/emails/:id`, `/users/:userId/emails/:id` | `GmailEmail` |
+| Dashboard | `/dashboard` | `DashboardMetricsGrid` |
+
+### Komponen (WAJIB dipakai ulang, jangan buat duplikat)
+- **Atoms**: `Avatar`, `Badge`, `Button`, `CardSurface`, `Checkbox`, `Icon` (`<Icon name="material_symbol"/>`), `InputText`.
+- **Molecules**: `BackLink`, `BrandLockup`, `EmailBodyViewer`, `FieldLabelInput`, `MailRow`, `MetricCard`, `Pager`, `SearchField`, `SearchSortBar`, `SidebarNavItem`, `StatusFilter`.
+- **Organisms**: `AccessCodeModal`, `AppSidebar`, `AppTopbar`, `DashboardMetricsGrid`, `GmailEmail`, `GmailInbox`, `GmailShell`, `GmailTabs`, `InboxTable`, `LoginModal`, `MailboxTopbar`, `MobileBottomNav`, `UserListPanel`, `WorkerSettingsForm`.
+
+### Event & props konvensi
+- Event lintas-komponen: `usercreated`, `userchanged` (`UserListPanel` → halaman). Jangan bikin event baru tanpa alasan.
+- Prop mode: `trashView` (boolean) untuk view Sampah; `view: 'inbox'|'starred'|'trash'` untuk mailbox.
+- Endpoint daftar: filter lewat `?status=`, `?q=`, `?sort=`, `?page=` — nama param persis ini.
+
+### API (persis, jangan duplikasi)
+- `POST /api/users` `{ username }` — create 1 user.
+- `POST /api/users/bulk` `{ mode: 'create'|'restore'|'softDelete'|'delete'|'emptyTrash' }`.
+- `DELETE /api/users/:userId` header `x-mailflare-confirm: soft-delete-user|delete-user`.
+- `PATCH /api/users/:userId` — `{ email, displayName, password, resetPassword, restore, telegramEnabled }`.
+- Email: `PATCH /api/me/emails/:id`, `POST /api/me/emails/bulk`, dan padanan `/api/users/:userId/emails/...`. Action: `star|delete|untrash|read|unread`.
+- **Tidak ada** action/label `archive` — fitur arsip sudah dihapus permanen dari UI.
+
+### Styling
+- Token warna: `--gm-*` untuk komponen Gmail (member **dan** admin), `--color-*`/`--space-*`/`--radius-*` untuk panel admin. Jangan hex hardcode.
+- **Jangan** memberi nama kelas global yang sudah dipakai aturan lama (mis. `main`, `.empty` berulang lintas komponen pada panel yang sama). Class state alternatif untuk "kosong": `is-empty`, `seg-empty` — beda komponen, beda scope.
+- Satu gaya = satu token/class; JANGAN menulis CSS ad-hoc per halaman untuk pola yang sama.
+
+### Konfirmasi & proteksi
+- Semua aksi destruktif WAJIB `confirm()` dengan pesan: apa yang terjadi + "Tindakan ini tidak bisa dibatalkan." jika permanen.
+- Owner selalu dilindungi (tidak bisa dihapus/di-restore-sendiri); pesan: `Akun owner tidak bisa dihapus.`
+- User masih di Sampah tidak bisa login; user aktif tidak bisa dihapus permanen langsung (harus masuk Sampah dulu).
+
+### Checklist sebelum commit
+1. Istilah/label sudah ada di daftar di atas (atau tambahkan dulu).
+2. Komponen reusable dipakai, bukan buat baru.
+3. `npm run check` = 0 error.
+4. Tidak ada teks UI bahasa Inggris baru (kecuali nama komponen/role/field).
+
+---
+
+## Cloudflare Free Tier — WAJIB efisien
+
+Project ini berjalan di **Cloudflare Workers + D1 + Assets (free tier)**. Semua pengembangan wajib mempertimbangkan kuota:
+
+- **D1 (SQLite)**: free tier terbatas (ratusan juta read/bln tidak didapat; target praktis tetap hemat). Aturan:
+  - Jangan query di dalam loop/render baris (**dilarang N+1**) — pakai `IN (...)` batch atau window function.
+  - Setiap list WAJIB `LIMIT` + pagination server-side (jangan `SELECT *` semua lalu filter di client).
+  - Query sering dipakai HARUS punya index di `schema.sql` (kolom filter + urutan). Tambah `CREATE INDEX IF NOT EXISTS` baru sekalian.
+  - Housekeeping (purge sampah/retensi) harus di-**throttle** (mis. 1x per 10 menit) dan dibungkus `try/catch` agar tidak menggagalkan request.
+  - Batch write besar pecah; hindari transaksi panjang.
+  - `schema.sql` SELALU idempotent (`IF NOT EXISTS`, `ALTER ... ADD COLUMN` aman) karena dijalankan ke DB production.
+- **Workers CPU & wall-clock**:
+  - Hashing password (PBKDF2) mahal → bulk create dibatasi (maks 100), notifikasi per-user dibatasi (maks 10), jangan hash berulang untuk user yang sama.
+  - Jangan loop berat/regex pathologis di worker; pindahkan parsing berat ke saat ingest email bila memungkinkan.
+- **Request & KV/R2/Turnstile**: minimalkan fetch circuler antar worker; pakai `MAILFLARE_NOTIFY_URL` internal; panggil Turnstile hanya saat perlu; cookie/session lookup 1 query.
+- **Aset**: jangan menambah library JS/CSS besar; komponen reusable lebih diutamakan daripada dependensi baru. `npm run check` harus 0 error sebelum `npm run deploy`.
+
+## Komponen & kode — WAJIB reusable
+
+- SEBELUM membuat komponen baru, cari dulu di `src/lib/components/{atoms,molecules,organisms}` dan di daftar "Standar Penamaan". Pakai/derive dari yang ada; jangan duplikat (satu fitur = satu komponen).
+- Halaman baru WAJIB memakai shell/organisme yang sudah ada (`GmailShell`, `AppSidebar`, `AppTopbar`, `GmailInbox`, `MailRow`, `GmailTabs`) — jangan bikin layout/sidebar/topbar tandingan.
+- Logic data bersama → `src/lib/server/services/*` + `db.ts` functions, bukan query mentah di route berulang.
+- Satu source of truth untuk istilah/enum (`status`, `view`, `mode` bulk) — dipakai konsisten UI ↔ API ↔ DB.
+
+## Aturan tambahan yang sering dilupakan (WAJIB)
+
+1. **Secrets**: jangan pernah commit token/password/`.dev.vars`. `SETUP_TOKEN`, `TURNSTILE_SECRET_KEY`, `TELEGRAM_*` hanya lewat `.dev.vars` lokal atau `wrangler secret`. Bila token tersebar di chat/log, wajib rotate.
+2. **Keamanan**: semua endpoint non-publik cek `locals.authenticated` + `sessionRole`; aksi state-changing wajib CSRF-origin check (sudah global di `hooks.server.ts`); header destruktif via `x-mailflare-confirm`; owner selalu proteksi.
+3. **Retensi**: Sampah email & Sampah user retensi **30 hari** lalu hapus permanen; restore user memberi password baru dan mencabut sesi lama; reset password mencabut semua sesi user.
+4. **UX konsisten**: destructive action = `confirm()` + pesan jelas; pesan error UI dalam Bahasa Indonesia; jangan bocorkan detail teknis (`D1_ERROR`, stack) ke user.
+5. **Aksesibilitas & mobile**: semua tombol ikon punya `aria-label` + `title`; baris list responsive (lihat media query di `UserListPanel`); modal jadi bottom-sheet di mobile.
+6. **Performa UI**: daftar panjang pakai pagination (`Pager`), bukan render semua; checkbox bulk selectable hanya untuk baris yang valid (owner dikunci).
+7. **Deployment**: perubahan selalu diakhiri `npm run check` (0 error) lalu `npm run deploy`; catat `Current Version ID` di respons terakhir.
+8. **Dokumentasi**: setiap istilah/komponen/endpoint baru WAJIB ditambahkan ke daftar di agent.md sebelum/bersama implementasi.
+9. **Rate limiting**: endpoint login/register/access-code WAJIB punya rate limit (pakai `src/lib/server/rate-limit.ts`); aksi sensitif (reset password, bulk) juga dibatasi per sesi/IP.
+10. **Backup sebelum migrasi destruktif**: sebelum `schema.sql`/migrasi yang mengubah/menghapus kolom-data, ekspor dulu DB production (`npm run d1:export` / `wrangler d1 export`) dan simpan cadangannya; migrasi baru dijalankan jika backup sukses.
+
+11. **Privasi email (keamanan, bukan pembatasan admin)**: isi email (`raw_mime`, `body_text`, `body_html`) memiliki akses penuh hanya untuk pemilik user dan owner/admin — admin BOLEH melihat isi email setiap member (mis. lewat `/users/:userId/inbox` & detail). Yang DILARANG: menulis isi email ke log/analytics/notifikasi error, menampilkan isi di email/notifikasi Telegram, atau mengekspor massal tanpa alasan. Notifikasi/log cukup metadata (pengirim, subjek, tanggal, ukuran). `raw_mime` ikut retensi Sampah (30 hari) lalu ikut terhapus.

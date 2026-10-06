@@ -4,6 +4,7 @@
   import Badge from '$lib/components/atoms/Badge.svelte';
   import Checkbox from '$lib/components/atoms/Checkbox.svelte';
   import Icon from '$lib/components/atoms/Icon.svelte';
+  import { toastStore } from '$lib/stores/toast.store';
 
   export let emails: EmailDto[] = [];
   export let userId = '';
@@ -75,13 +76,14 @@ $: if (pageIndex > totalPages - 1) {
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        restoreError = payload.error ?? 'Restore failed.';
+        restoreError = payload.error ?? 'Gagal memulihkan email.';
         return;
       }
-      restoreMessage = 'Email restored.';
+      restoreMessage = 'Email dipulihkan.';
+      toastStore.success('Email dipulihkan');
       trashEmails = trashEmails.filter((email) => email.id !== emailId);
     } catch {
-      restoreError = 'Unable to reach server.';
+      restoreError = 'Gagal menghubungi server.';
     } finally {
       restorePending = '';
     }

@@ -84,22 +84,26 @@ export interface ApplyEmailQuickActionResult {
   email?: EmailActionState;
 }
 
-let telegramEnabledColumnExists: boolean | null = null;
+// Cache per-instance D1: hindari PRAGMA berulang, tapi tidak stale lintas binding.
+const telegramColumnCache = new WeakMap<D1Database, boolean>();
 
 async function hasTelegramEnabledColumn(db: D1Database): Promise<boolean> {
-  if (telegramEnabledColumnExists !== null) {
-    return telegramEnabledColumnExists;
+  const cached = telegramColumnCache.get(db);
+  if (cached !== undefined) {
+    return cached;
   }
+  let has = false;
   try {
     const result = await db
       .prepare("PRAGMA table_info(users)")
       .all<{ name: string }>();
     const columns = (result.results ?? []).map((r) => r.name);
-    telegramEnabledColumnExists = columns.includes('telegram_enabled');
+    has = columns.includes('telegram_enabled');
   } catch {
-    telegramEnabledColumnExists = false;
+    has = false;
   }
-  return telegramEnabledColumnExists;
+  telegramColumnCache.set(db, has);
+  return has;
 }
 
 function telegramColumnFragment(hasColumn: boolean): string {
@@ -116,6 +120,7 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
 
   const [
     usersCount,
+    softDeletedUsersCount,
     telegramEnabledCount,
     telegramDisabledCount,
     topActiveRows,
@@ -131,7 +136,10 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
     emailsLastHour,
     recentActivityRows
   ] = await Promise.all([
-    db.prepare('SELECT COUNT(*) AS count FROM users').first<{ count: number }>(),
+    db
+      .prepare('SELECT COUNT(*) AS count FROM users WHERE password_hash IS NOT NULL AND deleted_at IS NULL')
+      .first<{ count: number }>(),
+    db.prepare('SELECT COUNT(*) AS count FROM users WHERE password_hash IS NULL').first<{ count: number }>(),
     db
       .prepare(
         hasCol
@@ -168,6 +176,7 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
             SUM(CASE WHEN e.is_read = 0 AND e.deleted_at IS NULL THEN 1 ELSE 0 END) AS unread_emails
           FROM users u
           LEFT JOIN emails e ON e.user_id = u.id AND e.deleted_at IS NULL
+          WHERE u.password_hash IS NOT NULL AND u.deleted_at IS NULL
           GROUP BY u.id, u.email, u.display_name, u.password_hash
           ORDER BY total_emails DESC, u.created_at DESC, u.id DESC
           LIMIT 5`
@@ -180,7 +189,6 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
            SUM(CASE WHEN is_read = 1 AND deleted_at IS NULL THEN 1 ELSE 0 END) AS read_count,
            SUM(CASE WHEN is_read = 0 AND deleted_at IS NULL THEN 1 ELSE 0 END) AS unread_count,
            SUM(CASE WHEN is_starred = 1 AND deleted_at IS NULL THEN 1 ELSE 0 END) AS starred_count,
-           SUM(CASE WHEN is_archived = 1 AND deleted_at IS NULL THEN 1 ELSE 0 END) AS archived_count,
            SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted_count
          FROM emails`
       )
@@ -189,7 +197,6 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
         read_count: number;
         unread_count: number;
         starred_count: number;
-        archived_count: number;
         deleted_count: number;
       }>(),
     db
@@ -266,7 +273,6 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
   const totalEmails = Number(pipelineTotals?.total ?? 0);
   const unreadCount = Number(pipelineTotals?.unread_count ?? 0);
   const starredCount = Number(pipelineTotals?.starred_count ?? 0);
-  const archivedCount = Number(pipelineTotals?.archived_count ?? 0);
   const deletedCount = Number(pipelineTotals?.deleted_count ?? 0);
   const readCount = Number(pipelineTotals?.read_count ?? 0);
 
@@ -287,7 +293,10 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
       key: 'users',
       label: 'Registered Users',
       value: formatNumber(usersTotal),
-      hint: `${formatNumber(telegramEnabled)} telegram aktif`,
+      hint:
+        Number(softDeletedUsersCount?.count ?? 0) > 0
+          ? `${formatNumber(telegramEnabled)} telegram aktif · ${formatNumber(softDeletedUsersCount?.count ?? 0)} dihapus`
+          : `${formatNumber(telegramEnabled)} telegram aktif`,
       status: 'ok',
       tone: 'primary',
       icon: 'group'
@@ -321,13 +330,13 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
       icon: 'star'
     },
     {
-      key: 'archived',
-      label: 'Archived',
-      value: formatNumber(archivedCount),
-      hint: 'Dipindahkan dari inbox',
-      status: 'ok',
-      tone: 'neutral',
-      icon: 'archive'
+      key: 'storage',
+      label: 'Storage Usage',
+      value: `${totalSizeMb.toFixed(1)} MB`,
+      hint: `Rata-rata ${averageSizeKb.toFixed(1)} KB/email`,
+      status: totalSizeMb > 800 ? 'warning' : 'ok',
+      tone: totalSizeMb > 800 ? 'warning' : 'neutral',
+      icon: 'database'
     },
     {
       key: 'deleted',
@@ -348,7 +357,6 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
       read: readCount,
       unread: unreadCount,
       starred: starredCount,
-      archived: archivedCount,
       deleted: deletedCount,
       withAttachments: Number(withAttachmentsCount?.count ?? 0),
       averageSizeKb: Number(averageSizeKb.toFixed(1)),
@@ -389,13 +397,61 @@ export async function getDashboardOverview(db?: D1Database): Promise<DashboardDt
   };
 }
 
-export async function getUsersFromDb(db?: D1Database): Promise<UserDto[]> {
+export type UserListSort = 'latest_email' | 'newest' | 'oldest' | 'name' | 'most_emails' | 'deleted_recent';
+
+export type UserStatusFilter = 'all' | 'active' | 'deleted';
+
+export interface GetUsersOptions {
+  /** Urutan default: email terbaru (berbobot, lalu tanggal buat user). */
+  sort?: UserListSort;
+  search?: string;
+  limit?: number;
+  offset?: number;
+  /** Filter status: semua, aktif, atau soft-deleted (Sampah User). */
+  status?: UserStatusFilter;
+}
+
+export async function getUsersFromDb(db?: D1Database, options: GetUsersOptions = {}): Promise<UserDto[]> {
   if (!db) {
     return usersFallback;
   }
 
+  const sort = options.sort ?? 'latest_email';
+  const limit = Math.min(Math.max(Number(options.limit ?? 100) || 100, 1), 200);
+  const offset = Math.max(Number(options.offset ?? 0) || 0, 0);
+  const search = (options.search ?? '').trim().toLowerCase();
+  const searchTerm = search ? `%${search.replace(/[%_]/g, (match) => `\\${match}`)}%` : '';
+
   const hasCol = await hasTelegramEnabledColumn(db);
   const telegramCol = telegramColumnFragment(hasCol);
+
+  // Satu query: agregat jumlah email + email terakhir per user (window function).
+  const orderBy =
+    sort === 'name'
+      ? 'LOWER(COALESCE(u.display_name, u.email)) ASC, u.created_at DESC'
+      : sort === 'newest'
+        ? 'u.created_at DESC, u.id DESC'
+        : sort === 'oldest'
+          ? options.status === 'deleted'
+            ? 'COALESCE(u.deleted_at, u.updated_at, u.created_at) ASC, u.id ASC'
+            : 'u.created_at ASC, u.id ASC'
+          : sort === 'most_emails'
+            ? 'COALESCE(counts.total_emails, 0) DESC, latest.received_at DESC, u.created_at DESC'
+            : sort === 'deleted_recent'
+              ? 'COALESCE(u.deleted_at, u.updated_at, u.created_at) DESC'
+              : `(CASE WHEN latest.received_at IS NULL THEN 1 ELSE 0 END) ASC, latest.received_at DESC, u.created_at DESC`;
+
+  const status = options.status ?? 'all';
+  const statusClause =
+    status === 'active'
+      ? 'AND u.password_hash IS NOT NULL AND u.deleted_at IS NULL'
+      : status === 'deleted'
+        ? 'AND (u.password_hash IS NULL OR u.deleted_at IS NOT NULL)'
+        : '';
+
+  const searchClause = searchTerm
+    ? `AND (u.email LIKE ? ESCAPE '\\' OR COALESCE(u.display_name, u.email) LIKE ? ESCAPE '\\')`
+    : '';
 
   const query = `
     WITH owner AS (
@@ -403,6 +459,27 @@ export async function getUsersFromDb(db?: D1Database): Promise<UserDto[]> {
       FROM users
       ORDER BY created_at ASC, id ASC
       LIMIT 1
+    ),
+    counts AS (
+      SELECT user_id, COUNT(*) AS total_emails,
+             SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread_emails
+      FROM emails
+      WHERE deleted_at IS NULL
+      GROUP BY user_id
+    ),
+    latest AS (
+      SELECT user_id, subject, sender, received_at
+      FROM (
+        SELECT
+          user_id,
+          subject,
+          sender,
+          received_at,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY received_at DESC) AS rn
+        FROM emails
+        WHERE deleted_at IS NULL
+      )
+      WHERE rn = 1
     )
     SELECT
       u.id,
@@ -415,20 +492,32 @@ export async function getUsersFromDb(db?: D1Database): Promise<UserDto[]> {
       END AS role
       ,
       CASE
-        WHEN u.password_hash IS NULL THEN 'disabled'
+        WHEN u.password_hash IS NULL OR u.deleted_at IS NOT NULL THEN 'disabled'
         ELSE 'active'
       END AS status,
-      COUNT(e.id) AS total_emails,
-      SUM(CASE WHEN e.is_read = 0 THEN 1 ELSE 0 END) AS unread_emails
+      u.deleted_at,
+      COALESCE(counts.total_emails, 0) AS total_emails,
+      COALESCE(counts.unread_emails, 0) AS unread_emails,
+      latest.subject AS latest_subject,
+      latest.sender AS latest_sender,
+      latest.received_at AS latest_received
     FROM users u
-    LEFT JOIN emails e
-      ON e.user_id = u.id
-      AND e.deleted_at IS NULL
-    GROUP BY u.id, u.email, u.display_name, u.password_hash
-    ORDER BY u.created_at DESC, u.id DESC
-    LIMIT 100
+    LEFT JOIN counts ON counts.user_id = u.id
+    LEFT JOIN latest ON latest.user_id = u.id
+    WHERE 1 = 1
+    ${statusClause}
+    ${searchClause}
+    ORDER BY ${orderBy}
+    LIMIT ? OFFSET ?
   `;
-  const { results } = await db.prepare(query).all<Record<string, unknown>>();
+
+  const bindings: Array<string | number> = [];
+  if (searchTerm) {
+    bindings.push(searchTerm, searchTerm);
+  }
+  bindings.push(limit, offset);
+
+  const { results } = await db.prepare(query).bind(...bindings).all<Record<string, unknown>>();
   return (results ?? []).map((row) => ({
     id: String(row.id),
     email: String(row.email),
@@ -437,8 +526,109 @@ export async function getUsersFromDb(db?: D1Database): Promise<UserDto[]> {
     status: String(row.status ?? 'active') === 'disabled' ? 'disabled' : 'active',
     telegramEnabled: Number(row.telegram_enabled ?? 1) === 1,
     totalEmails: Number(row.total_emails ?? 0),
-    unreadEmails: Number(row.unread_emails ?? 0)
+    unreadEmails: Number(row.unread_emails ?? 0),
+    deletedAt: row.deleted_at ? String(row.deleted_at) : null,
+    latestEmail: row.latest_subject
+      ? {
+          subject: String(row.latest_subject),
+          sender: String(row.latest_sender ?? ''),
+          receivedAt: String(row.latest_received ?? '')
+        }
+      : null
   }));
+}
+
+export async function countUsersFromDb(db: D1Database | undefined, options: GetUsersOptions = {}): Promise<number> {
+  if (!db) {
+    return 0;
+  }
+
+  const search = (options.search ?? '').trim().toLowerCase();
+  const searchTerm = search ? `%${search.replace(/[%_]/g, (match) => `\\${match}`)}%` : '';
+  const status = options.status ?? 'all';
+  const searchSql = searchTerm
+    ? `(u.email LIKE ? ESCAPE '\\' OR COALESCE(u.display_name, u.email) LIKE ? ESCAPE '\\')`
+    : '';
+  const statusFilter =
+    status === 'active'
+      ? '(u.password_hash IS NOT NULL AND u.deleted_at IS NULL)'
+      : status === 'deleted'
+        ? '(u.password_hash IS NULL OR u.deleted_at IS NOT NULL)'
+        : '';
+  const conditions = [searchSql, statusFilter].filter(Boolean).join(' AND ');
+  const whereSql = conditions ? `WHERE ${conditions}` : '';
+  const bindings = searchTerm ? [searchTerm, searchTerm] : [];
+
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS count FROM users u ${whereSql}`)
+    .bind(...bindings)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
+export interface UserCountBreakdown {
+  total: number; // sesuai filter aktif (status+search)
+  totalAll: number; // semua sesuai search
+  totalActive: number;
+  totalDeleted: number;
+}
+
+/** Satu query untuk semua hitungan halaman daftar user (hemat kuota D1). */
+export async function countUsersBreakdownFromDb(
+  db: D1Database | undefined,
+  options: GetUsersOptions = {}
+): Promise<UserCountBreakdown> {
+  const empty: UserCountBreakdown = { total: 0, totalAll: 0, totalActive: 0, totalDeleted: 0 };
+  if (!db) {
+    return empty;
+  }
+  const search = (options.search ?? '').trim().toLowerCase();
+  const searchTerm = search ? `%${search.replace(/[%_]/g, (m) => `\\${m}`)}%` : '';
+  const status = options.status ?? 'all';
+  const statusFilter =
+    status === 'active'
+      ? '(u.password_hash IS NOT NULL AND u.deleted_at IS NULL)'
+      : status === 'deleted'
+        ? '(u.password_hash IS NULL OR u.deleted_at IS NOT NULL)'
+        : '';
+  const searchSql = searchTerm
+    ? `(u.email LIKE ? ESCAPE '\\' OR COALESCE(u.display_name, u.email) LIKE ? ESCAPE '\\')`
+    : '';
+  const where = (cond: string) => {
+    const conds = [searchSql, cond].filter(Boolean).join(' AND ');
+    return conds ? `WHERE ${conds}` : '';
+  };
+  // 4 subquery × 2 placeholder search (atau 0 bila tanpa search)
+  const bindings = searchTerm ? Array(8).fill(searchTerm) : [];
+
+  const row = await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM users u ${where(statusFilter)}) AS total,
+        (SELECT COUNT(*) FROM users u ${where('')}) AS total_all,
+        (SELECT COUNT(*) FROM users u ${where('u.password_hash IS NOT NULL AND u.deleted_at IS NULL')}) AS total_active,
+        (SELECT COUNT(*) FROM users u ${where('u.password_hash IS NULL OR u.deleted_at IS NOT NULL')}) AS total_deleted`
+    )
+    .bind(...bindings)
+    .first<{ total: number; total_all: number; total_active: number; total_deleted: number }>()
+    .catch(() => null);
+
+  if (!row) {
+    // Fallback sederhana jika pengikatan binding bermasalah
+    const [total, totalAll, totalActive, totalDeleted] = await Promise.all([
+      countUsersFromDb(db, options),
+      countUsersFromDb(db, { search: options.search }),
+      countUsersFromDb(db, { search: options.search, status: 'active' }),
+      countUsersFromDb(db, { search: options.search, status: 'deleted' })
+    ]);
+    return { total, totalAll, totalActive, totalDeleted };
+  }
+  return {
+    total: Number(row.total ?? 0),
+    totalAll: Number(row.total_all ?? 0),
+    totalActive: Number(row.total_active ?? 0),
+    totalDeleted: Number(row.total_deleted ?? 0)
+  };
 }
 
 export async function getUserByIdFromDb(db: D1Database | undefined, userId: string): Promise<UserDto | null> {
@@ -1895,6 +2085,400 @@ export async function deleteUserInDb(db: D1Database | undefined, userId: string)
   return { deleted: true };
 }
 
+export interface AllInboxEmailDto {
+  id: string;
+  userId: string;
+  sender: string;
+  recipient: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  isRead: boolean;
+  isStarred: boolean;
+}
+
+export interface AllInboxEmailsOptions {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+export interface AllInboxEmailsResult {
+  items: AllInboxEmailDto[];
+  total: number;
+}
+
+/**
+ * Semua email masuk dari seluruh akun (admin view).
+ * 1 query list + 1 query COUNT, urutan email terbaru.
+ */
+export async function getAllInboxEmailsFromDb(
+  db: D1Database | undefined,
+  options: AllInboxEmailsOptions = {}
+): Promise<AllInboxEmailsResult> {
+  if (!db) {
+    return { items: [], total: 0 };
+  }
+
+  const limit = Math.min(Math.max(Number(options.limit ?? 50) || 50, 1), 100);
+  const offset = Math.max(Number(options.offset ?? 0) || 0, 0);
+  const raw = (options.search ?? '').trim().toLowerCase();
+
+  // Hemat kuota: minimal 2 karakter & maksimal 3 token (tiap token = 4 kolom LIKE).
+  const tokens = (raw.length >= 2 ? raw.split(/\s+/) : [])
+    .map((token) => token.replace(/[%_]/g, (match) => `\\${match}`))
+    .filter((token) => token.length >= 2)
+    .slice(0, 3);
+
+  const whereSql = tokens.length
+    ? ` AND ${tokens
+        .map(
+          () =>
+            "(subject LIKE ? ESCAPE '\\' OR sender LIKE ? ESCAPE '\\' OR recipient LIKE ? ESCAPE '\\' OR snippet LIKE ? ESCAPE '\\')"
+        )
+        .join(' AND ')}`
+    : '';
+
+  const bindings: string[] = [];
+  for (const token of tokens) {
+    const needle = `%${token}%`;
+    for (let i = 0; i < 4; i += 1) bindings.push(needle);
+  }
+
+  // Ambil limit+1 supaya COUNT hanya dijalankan bila memang ada halaman berikutnya.
+  const { results } = await db
+    .prepare(
+      `
+      SELECT id, user_id, sender, recipient, subject, snippet, received_at, is_read, is_starred
+      FROM emails
+      WHERE deleted_at IS NULL${whereSql}
+      ORDER BY received_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `
+    )
+    .bind(...bindings, String(limit + 1), String(offset))
+    .all<Record<string, unknown>>();
+
+  const rows = results ?? [];
+  const items: AllInboxEmailDto[] = rows.slice(0, limit).map((row) => ({
+    id: String(row.id),
+    userId: String(row.user_id),
+    sender: String(row.sender ?? ''),
+    recipient: String(row.recipient ?? ''),
+    subject: String(row.subject ?? '(No Subject)'),
+    snippet: String(row.snippet ?? ''),
+    receivedAt: String(row.received_at ?? ''),
+    isRead: Number(row.is_read ?? 0) === 1,
+    isStarred: Number(row.is_starred ?? 0) === 1
+  }));
+
+  let total: number;
+  if (rows.length <= limit) {
+    // Semua baris sudah terbaca -> total pasti, tidak perlu COUNT.
+    total = offset + items.length;
+  } else {
+    const countRow = await db
+      .prepare(`SELECT COUNT(*) AS count FROM emails WHERE deleted_at IS NULL${whereSql}`)
+      .bind(...bindings)
+      .first<{ count: number }>();
+    total = Number(countRow?.count ?? offset + items.length);
+  }
+
+  return { items, total };
+}
+
+export interface BulkCreateUsersInput {
+  email: string;
+  displayName?: string;
+  passwordHash: string;
+  telegramEnabled?: boolean;
+}
+
+export interface BulkCreateUsersResult {
+  created: Array<{ id: string; email: string; displayName: string }>;
+  skipped: Array<{ email: string; reason: string }>;
+}
+
+/** Bulk create user: 1 query cek duplikat + 1 batch insert (hemat request D1). */
+export async function createUsersInDb(
+  db: D1Database | undefined,
+  inputs: BulkCreateUsersInput[]
+): Promise<BulkCreateUsersResult> {
+  if (!db) {
+    throw new Error('DB binding is required for create operation');
+  }
+
+  const unique = new Map<string, BulkCreateUsersInput>();
+  for (const input of inputs) {
+    const email = input.email.trim().toLowerCase();
+    if (email) {
+      unique.set(email, { ...input, email });
+    }
+  }
+
+  const emails = Array.from(unique.keys());
+  if (emails.length === 0) {
+    return { created: [], skipped: [] };
+  }
+
+  const placeholders = emails.map(() => '?').join(', ');
+  const existing = await db
+    .prepare(`SELECT email, password_hash, deleted_at FROM users WHERE email IN (${placeholders})`)
+    .bind(...emails)
+    .all<{ email: string; password_hash: string | null; deleted_at: string | null }>();
+  const existingEmails = new Map(
+    (existing.results ?? []).map((row) => [
+      String(row.email).toLowerCase(),
+      !row.password_hash || row.deleted_at ? 'sampah' : 'aktif'
+    ])
+  );
+
+  const hasCol = await hasTelegramEnabledColumn(db);
+  const created: BulkCreateUsersResult['created'] = [];
+  const skipped: BulkCreateUsersResult['skipped'] = [];
+  const statements: D1PreparedStatement[] = [];
+
+  for (const [email, input] of unique.entries()) {
+    if (existingEmails.has(email)) {
+      skipped.push({
+        email,
+        reason:
+          existingEmails.get(email) === 'sampah'
+            ? 'ada di Sampah (pulihkan atau hapus permanen dulu)'
+            : 'sudah terdaftar'
+      });
+      continue;
+    }
+
+    const id = crypto.randomUUID();
+    const displayName = input.displayName?.trim() || email;
+    const telegramInt = (input.telegramEnabled ?? true) ? 1 : 0;
+
+    if (hasCol) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO users (id, email, display_name, password_hash, telegram_enabled, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+          )
+          .bind(id, email, displayName, input.passwordHash, telegramInt)
+      );
+    } else {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO users (id, email, display_name, password_hash, created_at, updated_at)
+             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+          )
+          .bind(id, email, displayName, input.passwordHash)
+      );
+    }
+
+    created.push({ id, email, displayName });
+  }
+
+  if (statements.length > 0) {
+    for (let i = 0; i < statements.length; i += 50) {
+      await db.batch(statements.slice(i, i + 50));
+    }
+  }
+
+  return { created, skipped };
+}
+
+export interface BulkSoftDeleteResult {
+  softDeleted: number;
+  skipped: Array<{ id: string; email: string; reason: string }>;
+}
+
+/**
+ * Bulk soft delete (nonaktifkan) user: 1 UPDATE + 1 DELETE sesi, owner dilewati.
+ * Email user tetap tersimpan, jadi masih bisa di-restore dalam masa retensi.
+ */
+export async function softDeleteUsersInDb(
+  db: D1Database | undefined,
+  userIds: string[]
+): Promise<BulkSoftDeleteResult> {
+  if (!db) {
+    throw new Error('DB binding is required for delete operation');
+  }
+
+  const ids = Array.from(new Set((userIds ?? []).map((id) => String(id)).filter(Boolean))).slice(0, 200);
+  if (ids.length === 0) {
+    return { softDeleted: 0, skipped: [] };
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = await db
+    .prepare(
+      `SELECT u.id, u.email,
+              (SELECT COUNT(*) FROM users o WHERE o.id = u.id AND o.id = (SELECT id FROM users ORDER BY created_at ASC, id ASC LIMIT 1)) AS is_owner
+       FROM users u
+       WHERE u.id IN (${placeholders})`
+    )
+    .bind(...ids)
+    .all<{ id: string; email: string; is_owner: number }>();
+
+  const skipped: BulkSoftDeleteResult['skipped'] = [];
+  const targets: string[] = [];
+  for (const row of rows.results ?? []) {
+    if (Number(row.is_owner ?? 0) === 1) {
+      skipped.push({ id: String(row.id), email: String(row.email ?? ''), reason: 'user owner tidak bisa dinonaktifkan' });
+      continue;
+    }
+    targets.push(String(row.id));
+  }
+
+  if (targets.length === 0) {
+    return { softDeleted: 0, skipped };
+  }
+
+  const targetPlaceholders = targets.map(() => '?').join(', ');
+  await db
+    .prepare(
+      `UPDATE users
+       SET password_hash = NULL, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+       WHERE id IN (${targetPlaceholders})`
+    )
+    .bind(...targets)
+    .run();
+  await db.prepare(`DELETE FROM login_sessions WHERE user_id IN (${targetPlaceholders})`).bind(...targets).run();
+
+  return { softDeleted: targets.length, skipped };
+}
+
+export interface BulkDeleteUsersResult {
+  deleted: string[];
+  skipped: Array<{ id: string; email: string; reason: string }>;
+}
+
+/**
+ * Hapus permanen user dari Sampah (beserta email & sesinya).
+ * Hanya user yang sudah soft-deleted (password_hash NULL / deleted_at terisi)
+ * yang boleh dihapus; user aktif dilewati. userIds=null menghapus SEMUA sampah.
+ */
+export async function deleteTrashedUsersInDb(
+  db: D1Database | undefined,
+  userIds: string[] | null
+): Promise<BulkDeleteUsersResult> {
+  if (!db) {
+    throw new Error('DB binding is required for delete operation');
+  }
+
+  const ownerRow = await db
+    .prepare('SELECT id FROM users ORDER BY created_at ASC, id ASC LIMIT 1')
+    .first<{ id: string }>();
+  const ownerId = ownerRow ? String(ownerRow.id) : null;
+
+  const rows = userIds
+    ? await db
+        .prepare(
+          `SELECT id, email FROM users WHERE id IN (${userIds.map(() => '?').join(', ')})`
+        )
+        .bind(...userIds)
+        .all<{ id: string; email: string }>()
+    : await db
+        .prepare(
+          `SELECT id, email FROM users WHERE password_hash IS NULL OR deleted_at IS NOT NULL`
+        )
+        .all<{ id: string; email: string }>();
+
+  const deletable: string[] = [];
+  const skipped: BulkDeleteUsersResult['skipped'] = [];
+  for (const row of rows.results ?? []) {
+    const id = String(row.id);
+    if (id === ownerId) {
+      skipped.push({ id, email: String(row.email), reason: 'user owner tidak bisa dihapus' });
+      continue;
+    }
+    deletable.push(id);
+  }
+  if (userIds) {
+    const softDeletedIds = new Set(
+      (
+        await db
+          .prepare(
+            `SELECT id FROM users WHERE id IN (${deletable.map(() => '?').join(', ') || "''"}) AND (password_hash IS NULL OR deleted_at IS NOT NULL)`
+          )
+          .bind(...deletable)
+          .all<{ id: string }>()
+      ).results?.map((r) => String(r.id)) ?? []
+    );
+    const active = deletable.filter((id) => !softDeletedIds.has(id));
+    for (const id of active) {
+      const row = (rows.results ?? []).find((r) => String(r.id) === id);
+      skipped.push({ id, email: String(row?.email ?? ''), reason: 'user masih aktif' });
+    }
+    deletable.splice(0, deletable.length, ...Array.from(softDeletedIds));
+  }
+
+  if (deletable.length > 0) {
+    const placeholders = deletable.map(() => '?').join(', ');
+    await db.prepare(`DELETE FROM emails WHERE user_id IN (${placeholders})`).bind(...deletable).run();
+    await db.prepare(`DELETE FROM login_sessions WHERE user_id IN (${placeholders})`).bind(...deletable).run();
+    await db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).bind(...deletable).run();
+  }
+
+  return { deleted: deletable, skipped };
+}
+
+/** Bulk delete user: 1 query cek dependensi (email/sesi/owner) + batch delete. */
+export async function deleteUsersInDb(
+  db: D1Database | undefined,
+  userIds: string[]
+): Promise<BulkDeleteUsersResult> {
+  if (!db) {
+    throw new Error('DB binding is required for delete operation');
+  }
+
+  const ids = Array.from(new Set((userIds ?? []).map((id) => String(id)).filter(Boolean))).slice(0, 200);
+  if (ids.length === 0) {
+    return { deleted: [], skipped: [] };
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = await db
+    .prepare(
+      `SELECT u.id, u.email,
+              (SELECT COUNT(*) FROM emails e WHERE e.user_id = u.id) AS email_count,
+              (SELECT COUNT(*) FROM login_sessions s WHERE s.user_id = u.id) AS session_count,
+              (SELECT COUNT(*) FROM users o WHERE o.id = u.id AND o.id = (SELECT id FROM users ORDER BY created_at ASC, id ASC LIMIT 1)) AS is_owner
+       FROM users u
+       WHERE u.id IN (${placeholders})`
+    )
+    .bind(...ids)
+    .all<{ id: string; email: string; email_count: number; session_count: number; is_owner: number }>();
+
+  const deleted: string[] = [];
+  const skipped: BulkDeleteUsersResult['skipped'] = [];
+  const deletable: string[] = [];
+
+  for (const row of rows.results ?? []) {
+    const email = String(row.email ?? '');
+    if (Number(row.is_owner ?? 0) === 1) {
+      skipped.push({ id: String(row.id), email, reason: 'user owner tidak bisa dihapus' });
+      continue;
+    }
+    if (Number(row.email_count ?? 0) > 0) {
+      skipped.push({ id: String(row.id), email, reason: 'masih punya email' });
+      continue;
+    }
+    if (Number(row.session_count ?? 0) > 0) {
+      skipped.push({ id: String(row.id), email, reason: 'masih ada sesi login' });
+      continue;
+    }
+    deletable.push(String(row.id));
+  }
+
+  if (deletable.length > 0) {
+    const deletePlaceholders = deletable.map(() => '?').join(', ');
+    await db.prepare(`DELETE FROM users WHERE id IN (${deletePlaceholders})`).bind(...deletable).run();
+    deleted.push(...deletable);
+  }
+
+  return { deleted, skipped };
+}
+
 export async function softDeleteUserInDb(db: D1Database | undefined, userId: string): Promise<SoftDeleteUserResult> {
   if (!db) {
     throw new Error('DB binding is required for delete operation');
@@ -1935,25 +2519,145 @@ export async function softDeleteUserInDb(db: D1Database | undefined, userId: str
     return { deleted: false, reason: 'already_deleted' };
   }
 
-  const domain = (row.email.split('@')[1] ?? 'mailflare.local').toLowerCase();
-  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 10);
-  const tombstoneEmail = `deleted+${suffix}@${domain}`;
-  const tombstoneName = `${row.display_name} (deleted)`.slice(0, 120);
-
+  // Email & nama tetap disimpan agar user bisa di-restore; hanya password yang
+  // di-null-kan (login ditolak) dan deleted_at diisi sebagai penanda soft delete.
   await db
     .prepare(
       `
       UPDATE users
-      SET email = ?, display_name = ?, password_hash = NULL, updated_at = CURRENT_TIMESTAMP
+      SET password_hash = NULL, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `
     )
-    .bind(tombstoneEmail, tombstoneName, userId)
+    .bind(userId)
     .run();
 
   await db.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(userId).run();
 
   return { deleted: true };
+}
+
+export interface RestoreUserResult {
+  restored: boolean;
+  reason?: 'not_found' | 'protected_owner' | 'not_deleted';
+  email?: string;
+  displayName?: string;
+}
+
+/** Hapus permanen satu user dari Sampah beserta email & sesinya. */
+export async function deleteUserPermanentlyInDb(
+  db: D1Database | undefined,
+  userId: string
+): Promise<{ deleted: boolean; reason?: 'not_found' | 'protected_owner' | 'not_in_trash' }> {
+  if (!db) {
+    throw new Error('DB binding is required for delete operation');
+  }
+  const row = await db
+    .prepare(
+      `WITH owner AS (SELECT id AS owner_id FROM users ORDER BY created_at ASC, id ASC LIMIT 1)
+       SELECT u.id,
+              CASE WHEN u.id = (SELECT owner_id FROM owner) THEN 1 ELSE 0 END AS is_owner,
+              u.password_hash, u.deleted_at
+       FROM users u WHERE u.id = ? LIMIT 1`
+    )
+    .bind(userId)
+    .first<{ id: string; is_owner: number; password_hash: string | null; deleted_at: string | null }>();
+  if (!row) return { deleted: false, reason: 'not_found' };
+  if (Number(row.is_owner) === 1) return { deleted: false, reason: 'protected_owner' };
+  if (row.password_hash && !row.deleted_at) return { deleted: false, reason: 'not_in_trash' };
+
+  await db.prepare('DELETE FROM emails WHERE user_id = ?').bind(userId).run();
+  await db.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(userId).run();
+  await db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
+  return { deleted: true };
+}
+
+export async function restoreUserInDb(
+  db: D1Database | undefined,
+  userId: string,
+  passwordHash: string
+): Promise<RestoreUserResult> {
+  if (!db) {
+    throw new Error('DB binding is required for restore operation');
+  }
+
+  const row = await db
+    .prepare(
+      `
+      WITH owner AS (
+        SELECT id AS owner_id FROM users ORDER BY created_at ASC, id ASC LIMIT 1
+      )
+      SELECT u.id, u.email, COALESCE(u.display_name, u.email) AS display_name,
+             CASE WHEN u.id = (SELECT owner_id FROM owner) THEN 1 ELSE 0 END AS is_owner
+      FROM users u
+      WHERE u.id = ?
+      LIMIT 1
+    `
+    )
+    .bind(userId)
+    .first<{ id: string; email: string; display_name: string; is_owner: number }>();
+
+  if (!row) {
+    return { restored: false, reason: 'not_found' };
+  }
+  if (Number(row.is_owner) === 1) {
+    return { restored: false, reason: 'protected_owner' };
+  }
+
+  await db
+    .prepare(
+      `
+      UPDATE users
+      SET password_hash = ?, deleted_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `
+    )
+    .bind(passwordHash, userId)
+    .run();
+
+  await db.prepare('DELETE FROM login_sessions WHERE user_id = ?').bind(userId).run();
+
+  return { restored: true, email: String(row.email), displayName: String(row.display_name) };
+}
+
+export const SOFT_DELETED_RETENTION_DAYS = 30;
+
+/**
+ * Hapus permanen user yang soft-deleted lebih dari 30 hari (berserta email & sesinya).
+ * Dipanggil secara lazy + throttle (1x per 10 menit) dari layout/server load.
+ */
+export async function purgeExpiredSoftDeletedUsersInDb(
+  db: D1Database | undefined,
+  retentionDays = SOFT_DELETED_RETENTION_DAYS
+): Promise<number> {
+  if (!db) {
+    return 0;
+  }
+
+  const days = Math.min(Math.max(Number(retentionDays) || SOFT_DELETED_RETENTION_DAYS, 1), 365);
+  const cutoff = `-${days} days`;
+
+  const victims = await db
+    .prepare(
+      `SELECT id FROM users
+       WHERE deleted_at IS NOT NULL
+         AND deleted_at < datetime('now', ?)
+         AND id <> (SELECT id FROM users ORDER BY created_at ASC, id ASC LIMIT 1)`
+    )
+    .bind(cutoff)
+    .all<{ id: string }>();
+
+  const ids = (victims.results ?? []).map((row) => String(row.id));
+  if (ids.length === 0) {
+    return 0;
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  await db.prepare(`DELETE FROM emails WHERE user_id IN (${placeholders})`).bind(...ids).run();
+  await db.prepare(`DELETE FROM login_sessions WHERE user_id IN (${placeholders})`).bind(...ids).run();
+  const result = await db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).bind(...ids).run();
+
+  return Number(result?.meta?.changes ?? 0);
 }
 
 const dashboardOverviewFallback: DashboardDto = {
@@ -1963,7 +2667,7 @@ const dashboardOverviewFallback: DashboardDto = {
     { key: 'emails', label: 'Email Records', value: '2', hint: '2 dalam 7 hari terakhir', delta: '+0 hari ini', status: 'ok', tone: 'primary', icon: 'mail' },
     { key: 'unread', label: 'Unread Inbox Items', value: '2', hint: 'Perlu ditinjau', status: 'warning', tone: 'warning', icon: 'mark_email_unread' },
     { key: 'starred', label: 'Starred by Admin', value: '1', hint: 'Disimpan permanen', status: 'ok', tone: 'success', icon: 'star' },
-    { key: 'archived', label: 'Archived', value: '1', hint: 'Dipindahkan dari inbox', status: 'ok', tone: 'neutral', icon: 'archive' },
+    { key: 'storage', label: 'Storage Usage', value: '0.1 MB', hint: 'Rata-rata 1.0 KB/email', status: 'ok', tone: 'neutral', icon: 'database' },
     { key: 'deleted', label: 'Soft Deleted', value: '0', hint: 'Dalam masa retensi', status: 'ok', tone: 'danger', icon: 'delete' }
   ],
   pipeline: {
@@ -1971,7 +2675,6 @@ const dashboardOverviewFallback: DashboardDto = {
     read: 0,
     unread: 2,
     starred: 1,
-    archived: 1,
     deleted: 0,
     withAttachments: 0,
     averageSizeKb: 12.4,

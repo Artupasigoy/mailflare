@@ -3,16 +3,21 @@
   import type { EmailDetailDto } from '$lib/types/dto';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import EmailBodyViewer from '$lib/components/molecules/EmailBodyViewer.svelte';
+  import { toastStore } from '$lib/stores/toast.store';
 
   export let email: EmailDetailDto;
   export let apiBase: string;
   export let backHref = '/me/inbox';
+  /** Tombol kembali di toolbar; biarkan false karena BackLink dipakai di atas tab. */
+  export let showBack = false;
+  export let view: 'inbox' | 'starred' | 'trash' = 'inbox';
+  export let recipientLabel = 'kepada saya';
 
   let isStarred = email.isStarred;
   let pending = false;
   let error = '';
 
-  async function act(action: 'star' | 'delete') {
+  async function act(action: 'star' | 'delete' | 'untrash' | 'unread') {
     if (pending) return;
     if (action === 'delete' && !confirm('Pindahkan ke Sampah?')) return;
     pending = true;
@@ -31,6 +36,13 @@
       if (action === 'star') {
         isStarred = !isStarred;
       } else {
+        if (action === 'delete') {
+          toastStore.success('Email dipindahkan ke Sampah');
+        } else if (action === 'untrash') {
+          toastStore.success('Email dipulihkan');
+        } else if (action === 'unread') {
+          toastStore.success('Email ditandai belum dibaca');
+        }
         goto(backHref);
       }
     } catch {
@@ -66,11 +78,22 @@
 <div class="card">
   <div class="toolbar">
     <div class="tb-left">
-      <a class="tb-btn" href={backHref} title="Kembali" aria-label="Kembali ke inbox">
-        <Icon name="arrow_back" size={18} />
-      </a>
-      <button class="tb-btn" type="button" title="Sampah" aria-label="Pindahkan ke sampah" on:click={() => act('delete')} disabled={pending}>
-        <Icon name="delete" size={18} />
+      {#if showBack}
+        <a class="tb-btn" href={backHref} title="Kembali" aria-label="Kembali ke inbox">
+          <Icon name="arrow_back" size={18} />
+        </a>
+      {/if}
+      {#if view === 'trash'}
+        <button class="tb-btn" type="button" title="Pulihkan" aria-label="Pulihkan email" on:click={() => act('untrash')} disabled={pending}>
+          <Icon name="restore" size={18} />
+        </button>
+      {:else}
+        <button class="tb-btn" type="button" title="Pindahkan ke Sampah" aria-label="Pindahkan ke Sampah" on:click={() => act('delete')} disabled={pending}>
+          <Icon name="delete" size={18} />
+        </button>
+      {/if}
+      <button class="tb-btn" type="button" title="Tandai belum dibaca" aria-label="Tandai belum dibaca" on:click={() => act('unread')} disabled={pending}>
+        <Icon name="mark_email_unread" size={18} />
       </button>
       <span class="divider" aria-hidden="true"></span>
       <button
@@ -110,7 +133,7 @@
         <strong>{senderName()}</strong>
         <span class="address">{senderAddress()}</span>
       </div>
-      <div class="to">kepada saya</div>
+      <div class="to">{recipientLabel}</div>
     </div>
     <div class="right-meta">
       <span class="date">{dateLabel()}</span>

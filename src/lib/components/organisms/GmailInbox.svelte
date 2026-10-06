@@ -2,6 +2,8 @@
   import { invalidateAll } from '$app/navigation';
   import type { EmailDto } from '$lib/types/dto';
   import Icon from '$lib/components/atoms/Icon.svelte';
+  import MailRow from '$lib/components/molecules/MailRow.svelte';
+  import { toastStore } from '$lib/stores/toast.store';
 
   export let emails: EmailDto[] = [];
   export let trashEmails: EmailDto[] = [];
@@ -127,6 +129,7 @@
       if (response.ok) {
         emails = emails.filter((email) => email.id !== emailId);
         selectedIds = selectedIds.filter((id) => id !== emailId);
+        toastStore.success('Email dipindahkan ke Sampah');
       }
     } finally {
       pendingId = '';
@@ -145,6 +148,7 @@
       if (response.ok) {
         trashEmails = trashEmails.filter((email) => email.id !== emailId);
         selectedIds = selectedIds.filter((id) => id !== emailId);
+        toastStore.success('Email dipulihkan');
       }
     } finally {
       pendingId = '';
@@ -162,6 +166,7 @@
         body: JSON.stringify({ ids: selectedIds, action: 'delete' })
       });
       if (!response.ok) return;
+      toastStore.success(`${selectedIds.length} email dipindahkan ke Sampah`);
       const removed = new Set(selectedIds);
       emails = emails.filter((email) => !removed.has(email.id));
       trashEmails = trashEmails.filter((email) => !removed.has(email.id));
@@ -182,6 +187,7 @@
         body: JSON.stringify({ ids: selectedIds, action: nextRead ? 'read' : 'unread' })
       });
       if (!response.ok) return;
+      toastStore.success(nextRead ? 'Ditandai sudah dibaca' : 'Ditandai belum dibaca');
       const target = new Set(selectedIds);
       emails = emails.map((email) => (target.has(email.id) ? { ...email, isRead: nextRead } : email));
     } finally {
@@ -204,6 +210,7 @@
       trashEmails = [];
       emails = emails.filter((email) => !selectedSet.has(email.id));
       selectedIds = [];
+      toastStore.success('Sampah dikosongkan');
     } finally {
       emptyPending = false;
     }
@@ -252,16 +259,18 @@
 
     <div class="toolbar">
       <div class="tb-left">
-        <span class="tb-select">
-          <input
-            class="cb"
-            bind:this={selectAllEl}
-            type="checkbox"
-            checked={allPageSelected}
-            aria-label="Pilih semua email di halaman ini"
-            on:change={toggleSelectAll}
-          />
-        </span>
+        {#if activeView !== 'trash'}
+          <span class="tb-select">
+            <input
+              class="cb"
+              bind:this={selectAllEl}
+              type="checkbox"
+              checked={allPageSelected}
+              aria-label="Pilih semua email di halaman ini"
+              on:change={toggleSelectAll}
+            />
+          </span>
+        {/if}
         {#if selectionCount > 0 && activeView !== 'trash'}
           <span class="sel-count">{nf.format(selectionCount)} dipilih</span>
           <button
@@ -278,21 +287,19 @@
             <Icon name="delete" size={18} />
           </button>
         {/if}
-        {#if activeView === 'trash' && trashEmptyUrl}
-          <button
-            class="tb-btn danger"
-            type="button"
-            title="Kosongkan Sampah"
-            aria-label="Kosongkan Sampah"
-            on:click={emptyTrash}
-            disabled={emptyPending || trashEmails.length === 0}
-          >
-            <Icon name="delete_sweep" size={18} />
-          </button>
-        {/if}
         {#if selectionCount === 0}
           <button class="tb-btn" type="button" title="Muat ulang" aria-label="Muat ulang" on:click={refresh} disabled={refreshing}>
             <span class:spin={refreshing}><Icon name="refresh" size={18} /></span>
+          </button>
+        {/if}
+        {#if activeView === 'trash' && trashEmptyUrl}
+          <button
+            class="tb-btn-text danger"
+            type="button"
+            on:click={emptyTrash}
+            disabled={emptyPending || trashEmails.length === 0}
+          >
+            Kosongkan Sampah
           </button>
         {/if}
       </div>
@@ -312,50 +319,55 @@
   {:else}
     <div class="rows">
       {#each paginated as email (email.id)}
-        <div class={`row ${email.isRead ? '' : 'unread'} ${selectedSet.has(email.id) ? 'selected' : ''}`}>
-          {#if activeView !== 'trash'}
-            <input
-              class="cb"
-              type="checkbox"
-              checked={selectedSet.has(email.id)}
-              aria-label={`Pilih email dari ${senderLabel(email.sender)}`}
-              on:change={() => toggleSelect(email.id)}
-            />
-          {:else}
-            <span class="cb-space" aria-hidden="true"></span>
-          {/if}
-          <button
-            class="star"
-            class:on={email.isStarred}
-            type="button"
-            title={email.isStarred ? 'Hapus bintang' : 'Beri bintang'}
-            aria-label={email.isStarred ? 'Hapus bintang' : 'Beri bintang'}
-            on:click={() => toggleStar(email)}
-            disabled={pendingId === email.id}
-          >
-            <svg
-              class="star-svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill={email.isStarred ? 'currentColor' : 'none'}
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linejoin="round"
-              aria-hidden="true"
+        <MailRow
+          href={`${emailHrefPrefix}/${email.id}${viewSuffix}`}
+          sender={senderLabel(email.sender)}
+          subject={email.subject}
+          snippet={email.snippet}
+          receivedAt={timeLabel(email.receivedAt)}
+          isRead={email.isRead}
+          isStarred={email.isStarred}
+          showLeading={activeView !== 'trash'}
+          showActions={true}
+          selected={selectedSet.has(email.id)}
+        >
+          <svelte:fragment slot="leading">
+            {#if activeView !== 'trash'}
+              <input
+                class="cb"
+                type="checkbox"
+                checked={selectedSet.has(email.id)}
+                aria-label={`Pilih email dari ${senderLabel(email.sender)}`}
+                on:change={() => toggleSelect(email.id)}
+              />
+            {/if}
+          </svelte:fragment>
+          <svelte:fragment slot="star">
+            <button
+              class="star"
+              class:on={email.isStarred}
+              type="button"
+              title={email.isStarred ? 'Hapus bintang' : 'Beri bintang'}
+              aria-label={email.isStarred ? 'Hapus bintang' : 'Beri bintang'}
+              on:click={() => toggleStar(email)}
+              disabled={pendingId === email.id}
             >
-              <path d="M12 2.8l2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.35l-5.7 3-1.09-6.34-4.62-4.5 6.38-.93z" />
-            </svg>
-          </button>
-          <a class="row-link" href={`${emailHrefPrefix}/${email.id}${viewSuffix}`}>
-            <span class="sender">{senderLabel(email.sender)}</span>
-            <span class="subject">
-              {email.subject}
-              <span class="snippet">– {email.snippet}</span>
-            </span>
-          </a>
-          <span class="time">{timeLabel(email.receivedAt)}</span>
-          <span class="quick">
+              <svg
+                class="star-svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill={email.isStarred ? 'currentColor' : 'none'}
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 2.8l2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.35l-5.7 3-1.09-6.34-4.62-4.5 6.38-.93z" />
+              </svg>
+            </button>
+          </svelte:fragment>
+          <svelte:fragment slot="actions">
             {#if activeView === 'trash'}
               <button class="q-btn" type="button" title="Pulihkan" aria-label="Pulihkan" on:click={() => restoreEmail(email.id)} disabled={pendingId === email.id}>
                 <Icon name="restore" size={18} />
@@ -371,12 +383,12 @@
               >
                 <Icon name={email.isRead ? 'mark_email_unread' : 'mark_email_read'} size={18} />
               </button>
-              <button class="q-btn danger" type="button" title="Sampah" aria-label="Pindahkan ke sampah" on:click={() => removeEmail(email.id)} disabled={pendingId === email.id}>
+              <button class="q-btn danger" type="button" title="Pindahkan ke Sampah" aria-label="Pindahkan ke Sampah" on:click={() => removeEmail(email.id)} disabled={pendingId === email.id}>
                 <Icon name="delete" size={18} />
               </button>
             {/if}
-          </span>
-        </div>
+          </svelte:fragment>
+        </MailRow>
       {/each}
     </div>
   {/if}
@@ -457,6 +469,27 @@
 
   .tb-btn:disabled {
     color: #dadce0;
+    cursor: default;
+  }
+
+  .tb-btn-text {
+    border: 1px solid var(--gm-danger);
+    background: transparent;
+    color: var(--gm-danger);
+    border-radius: 9999px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .tb-btn-text:hover:not(:disabled) {
+    background: var(--gm-danger-soft);
+  }
+
+  .tb-btn-text:disabled {
+    opacity: 0.5;
     cursor: default;
   }
 

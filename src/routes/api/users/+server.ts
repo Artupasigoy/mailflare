@@ -83,7 +83,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('UNIQUE constraint failed')) {
-      return json({ error: 'Username already exists' }, { status: 409 });
+      return json({ error: 'Email sudah dipakai (termasuk user di Sampah). Pulihkan dulu atau hapus permanen user lama.' }, { status: 409 });
     }
     if (message.includes('DB binding is required')) {
       return json({ error: 'Database is not configured' }, { status: 503 });

@@ -142,6 +142,15 @@ select {
   vertical-align: middle;
 }
 
+/* ── Permukaan bergaya Gmail (daftar email seragam) ── */
+.mail-surface {
+  background: var(--gm-bg);
+  color: var(--gm-text);
+  font-family: Arial, Helvetica, sans-serif;
+  border-color: var(--gm-border);
+  border-radius: 16px;
+}
+
 /* ── Layout Shell ─────────────────────────────────────────────── */
 .layout-shell {
   min-height: 100dvh;

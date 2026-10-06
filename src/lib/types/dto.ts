@@ -31,7 +31,6 @@ export interface DashboardPipelineDto {
   read: number;
   unread: number;
   starred: number;
-  archived: number;
   deleted: number;
   withAttachments: number;
   averageSizeKb: number;
@@ -80,6 +79,14 @@ export interface UserDto {
   telegramEnabled: boolean;
   totalEmails?: number;
   unreadEmails?: number;
+  /** Waktu soft delete (isi bila status = disabled karena dihapus). */
+  deletedAt?: string | null;
+  /** Email terakhir yang masuk untuk user ini (ringkasan di User List). */
+  latestEmail?: {
+    subject: string;
+    sender: string;
+    receivedAt: string;
+  } | null;
 }
 
 export interface EmailDto {

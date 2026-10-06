@@ -9,7 +9,7 @@
     emails: 'mail',
     unread: 'mark_email_unread',
     starred: 'star',
-    archived: 'archive',
+    storage: 'database',
     deleted: 'delete'
   };
 </script>

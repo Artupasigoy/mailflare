@@ -152,19 +152,21 @@ describe('MarkdownV2 Escaping', () => {
       // Semua special char harus di-escape
       expect(result).toContain('\\|');
       expect(result).toContain('\\.');
-      expect(result).toContain('\\@'); // @ sebenarnya tidak perlu di-escape tapi tidak merugikan
+      // @ tidak wajib di-escape; yang penting literal @ tetap ada
+      expect(result).toContain('@');
     });
 
     it('should handle subject line with special characters', () => {
       const subject = 'Important! Meeting @ 2:30 (urgent)';
       const result = escapeMarkdownV2(subject);
-      expect(result).toBe('Important\\! Meeting @ 2\\:30 \\(urgent\\)');
+      expect(result).toBe('Important\\! Meeting @ 2:30 \\(urgent\\)');
     });
 
     it('should handle sender/recipient display', () => {
       const display = 'John Doe <john.doe@example.com>';
       const result = escapeMarkdownV2(display);
-      expect(result).toContain('\\<');
+      // < tidak wajib di-escape; > wajib
+      expect(result).toContain('<');
       expect(result).toContain('\\>');
       expect(result).toContain('\\.');
     });

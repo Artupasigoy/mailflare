@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS users (
   display_name TEXT,
   password_hash TEXT,
   telegram_enabled INTEGER NOT NULL DEFAULT 1,
+  -- Soft delete: user dinonaktifkan (password di-null-kan) dan di-retensi 30 hari
+  -- sebelum dihapus permanen. Email tetap disimpan agar bisa di-restore.
+  deleted_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -189,3 +192,4 @@ DROP TABLE IF EXISTS telegram_events;
 --
 -- Cek apakah kolom sudah ada (idempoten):
 -- PRAGMA table_info(users);
+PRAGMA user_version = 1;
