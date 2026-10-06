@@ -4,6 +4,7 @@ declare global {
       authenticated: boolean;
       sessionUserId?: string;
       sessionEmail?: string;
+      sessionDisplayName?: string;
       sessionRole?: 'owner' | 'member';
     }
 

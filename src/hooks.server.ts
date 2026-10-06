@@ -28,6 +28,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.authenticated = false;
   event.locals.sessionUserId = undefined;
   event.locals.sessionEmail = undefined;
+  event.locals.sessionDisplayName = undefined;
   event.locals.sessionRole = undefined;
 
   if (token && db) {
@@ -36,6 +37,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       event.locals.authenticated = true;
       event.locals.sessionUserId = session.userId;
       event.locals.sessionEmail = session.email;
+      event.locals.sessionDisplayName = session.displayName;
       event.locals.sessionRole = session.role;
     } else {
       event.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });

@@ -18,6 +18,7 @@ export const load: LayoutServerLoad = async (event) => {
 
   return {
     sessionRole: locals.sessionRole ?? null,
-    sessionEmail: locals.sessionEmail ?? null
+    sessionEmail: locals.sessionEmail ?? null,
+    sessionDisplayName: locals.sessionDisplayName ?? null
   };
 };

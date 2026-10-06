@@ -6,6 +6,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 export interface AuthSession {
   userId: string;
   email: string;
+  displayName: string;
   role: 'owner' | 'member';
 }
 
@@ -73,6 +74,7 @@ export async function getSessionByToken(db: D1Database, token: string): Promise<
       SELECT
         ls.user_id,
         u.email,
+        COALESCE(u.display_name, u.email) AS display_name,
         CASE
           WHEN ls.user_id = (SELECT owner_id FROM owner) THEN 'owner'
           ELSE 'member'
@@ -85,7 +87,7 @@ export async function getSessionByToken(db: D1Database, token: string): Promise<
     `
     )
     .bind(tokenHash)
-    .first<{ user_id: string; email: string; role: 'owner' | 'member' }>();
+    .first<{ user_id: string; email: string; display_name: string; role: 'owner' | 'member' }>();
 
   if (!row) {
     return null;
@@ -94,6 +96,7 @@ export async function getSessionByToken(db: D1Database, token: string): Promise<
   return {
     userId: row.user_id,
     email: row.email,
+    displayName: row.display_name?.trim() || row.email,
     role: row.role === 'owner' ? 'owner' : 'member'
   };
 }

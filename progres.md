@@ -154,5 +154,10 @@ Permintaan & implementasi:
 - **Tes regresi** baru di `users-trash.test.ts` (aktifkan `PRAGMA foreign_keys=ON`): hapus user ber-email+history+label, dan `emptyTrashForUserInDb`.
 - Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **53/53**, `npm run build` sukses.
 
+### 2026-10-07 — Sesi 9 (sapaan dashboard dinamis)
+- Sapaan dashboard tidak lagi hardcode "MAS". Kini `${greeting}, ${nama}` memakai `display_name` user yang login (mis. "Selamat pagi, Admin"), fallback ke localpart email, lalu "Admin"; huruf pertama di-kapitalkan.
+- `session.ts`: `AuthSession.displayName` (dari `users.display_name`); diteruskan `hooks.server.ts` → `locals.sessionDisplayName`, `app.d.ts`, `+layout.server.ts` → `sessionDisplayName` halaman.
+- Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **53/53**, `npm run build` sukses.
+
 ### <tambahkan sesi berikutnya di sini>
 - …

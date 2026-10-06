@@ -29,7 +29,11 @@
   $: recentActivity = dashboard.recentActivity;
   $: generatedAtLabel = formatTimestamp(dashboard.generatedAt);
   $: adminEmail = $page.data.sessionEmail ?? null;
+  $: adminName = capitalizeName(
+    ($page.data.sessionDisplayName ?? '').trim() || (adminEmail ? adminEmail.split('@')[0] : '') || 'Admin'
+  );
   $: greeting = buildGreeting();
+  $: greetingTitle = `${greeting}, ${adminName}`;
 
   const workerTone: Record<DashboardWorkerStatus, 'success' | 'warning' | 'danger'> = {
     operational: 'success',
@@ -87,6 +91,10 @@
     if (hour < 15) return 'Selamat siang';
     if (hour < 19) return 'Selamat sore';
     return 'Selamat malam';
+  }
+
+  function capitalizeName(name: string): string {
+    return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
   function getInitials(name: string): string {
@@ -166,7 +174,7 @@
         <div class="hero-grid">
           <div class="hero-text">
             <p class="hero-eyebrow">MailFlare Infrastructure</p>
-            <h2 class="hero-title">{greeting}, MAS</h2>
+            <h2 class="hero-title">{greetingTitle}</h2>
             <p class="hero-sub">
               Ringkasan operasional mailbox, user, dan worker. Data terakhir disinkron
               <strong>{generatedAtLabel}</strong>.

@@ -128,7 +128,7 @@ Tambahan skema:
   - Caching: `hasTelegramEnabledColumn` pakai `WeakMap<D1Database,boolean>` (per-instance, bukan global).
   - Fallback demo data dipakai bila `db` undefined (`dev` tanpa `cf:dev`).
 - **`security.ts`** — PBKDF2-SHA256 **100.000 iterasi** (batas runtime CF), format `pbkdf2_sha256$iter$salt$derived`; `randomToken()` base64url 32 byte; `generateSecurePassword(18)`; `sha256Hex`.
-- **`session.ts`** — cookie `mailflare_session`, umur 7 hari (`SESSION_MAX_AGE_SECONDS`), token di-hash SHA-256 sebelum disimpan; role dihitung dari owner.
+- **`session.ts`** — cookie `mailflare_session`, umur 7 hari (`SESSION_MAX_AGE_SECONDS`), token di-hash SHA-256 sebelum disimpan; role dihitung dari owner. `AuthSession` memuat `displayName` (dari `users.display_name`, fallback email) yang diteruskan ke `locals.sessionDisplayName` + data layout (`sessionDisplayName`) untuk sapaan dashboard.
 - **`api-key.ts`** — prefix `cmf_v1_`, key di-hash SHA-256; `authenticatePublicApiRequest` + rate limit in-memory 120 req/menit/key.
 - **`access-code.ts`** — `MF-XXXX-XXXX-XXXX`, hash SHA-256, TTL 10 menit, sekali pakai.
 - **`rate-limit.ts`** — in-memory sliding window; login 10/menit/IP, access-code 5/menit/IP. Reset saat cold start (diterima).
