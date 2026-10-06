@@ -277,8 +277,12 @@
 
   async function handleBulkCreate() {
     if (bulkPending) return;
-    bulkPending = true;
     bulkErrors = [];
+    if (bulkPasswordMode === 'same' && bulkSharedPassword.trim().length < 8) {
+      bulkErrors = ['Password bersama minimal 8 karakter.'];
+      return;
+    }
+    bulkPending = true;
     try {
       const response = await fetch('/api/users/bulk', {
         method: 'POST',
@@ -826,7 +830,7 @@
 
         <div class="modal-footer">
           <button class="btn-cancel" type="button" disabled={bulkPending} on:click={closeBulkModal}>Batal</button>
-          <button class="btn-submit signature-bg" type="submit" disabled={bulkPending || bulkUsernames.trim().length === 0}>
+          <button class="btn-submit signature-bg" type="submit" disabled={bulkPending || bulkUsernames.trim().length === 0 || (bulkPasswordMode === 'same' && bulkSharedPassword.trim().length < 8)}>
             {bulkPending ? 'Membuat...' : 'Buat User'}
           </button>
         </div>
