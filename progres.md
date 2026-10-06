@@ -131,6 +131,9 @@ Permintaan & implementasi:
   - Batas ±25MB (free tier), paginasi insert 50/batch, DDL batch.
 - Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **44/44**, `npm run build` sukses.
 - Update `agent.md` (skema, endpoint, komponen, jebakan, kosakata) + `progres.md`.
+- **Commit & push**: `cd6eaf3` → `origin/main`.
+- **Deploy**: `npm run deploy` sukses → **Current Version ID `7ef3ce98-c82f-45db-8c16-b78de1bb7fca`** (2026-10-06). Migrasi D1 `ALTER TABLE labels ADD COLUMN visible INTEGER NOT NULL DEFAULT 1` diterapkan ke remote (kolom terverifikasi). `/api/health` OK.
+- **Catatan keamanan**: token API Cloudflare sempat dibagikan di chat saat deploy → **WAJIB di-rotate**.
 
 ### <tambahkan sesi berikutnya di sini>
 - …
