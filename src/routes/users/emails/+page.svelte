@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { afterNavigate, goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/stores';
   import AppSidebar from '$lib/components/organisms/AppSidebar.svelte';
@@ -8,6 +9,7 @@
   import MailRow from '$lib/components/molecules/MailRow.svelte';
   import Pager from '$lib/components/molecules/Pager.svelte';
   import SearchSortBar from '$lib/components/molecules/SearchSortBar.svelte';
+  import { formatMailTime } from '$lib/format';
   import { sidebarCollapsed } from '$lib/stores/ui.store';
   import type { PageData } from './$types';
 
@@ -20,6 +22,15 @@
   $: unreadCount = data.emails.filter((email) => !email.isRead).length;
   let refreshing = false;
   let refreshedAt = new Date();
+  // Detak per menit agar label relatif ("baru saja", "N menit yg lalu") tetap segar.
+  let clock = Date.now();
+
+  onMount(() => {
+    const timer = setInterval(() => {
+      clock = Date.now();
+    }, 30_000);
+    return () => clearInterval(timer);
+  });
 
   async function handleRefresh() {
     if (refreshing) {
@@ -75,14 +86,7 @@
   }
 
   function timeLabel(iso: string): string {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '-';
-    const now = new Date();
-    const sameDay =
-      now.getFullYear() === date.getFullYear() && now.getMonth() === date.getMonth() && now.getDate() === date.getDate();
-    if (sameDay) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const sameYear = now.getFullYear() === date.getFullYear();
-    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+    return formatMailTime(iso, new Date(clock)) || '-';
   }
 </script>
 

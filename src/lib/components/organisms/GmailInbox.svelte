@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import type { EmailDto } from '$lib/types/dto';
+  import { formatMailTime } from '$lib/format';
   import Icon from '$lib/components/atoms/Icon.svelte';
   import MailRow from '$lib/components/molecules/MailRow.svelte';
   import { toastStore } from '$lib/stores/toast.store';
@@ -25,6 +27,15 @@
   let lastView = view;
   let emptyPending = false;
   let emptyError = '';
+  // Detak per menit agar label relatif ("baru saja", "N menit yg lalu") & jam tetap segar.
+  let clock = Date.now();
+
+  onMount(() => {
+    const timer = setInterval(() => {
+      clock = Date.now();
+    }, 30_000);
+    return () => clearInterval(timer);
+  });
 
   $: activeView = view;
   $: inboxEmails = emails.filter((email) => !email.isArchived);
@@ -226,16 +237,7 @@
   }
 
   function timeLabel(iso: string): string {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '';
-    const now = new Date();
-    const sameDay =
-      now.getFullYear() === date.getFullYear() &&
-      now.getMonth() === date.getMonth() &&
-      now.getDate() === date.getDate();
-    if (sameDay) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const sameYear = now.getFullYear() === date.getFullYear();
-    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+    return formatMailTime(iso, new Date(clock));
   }
 
   function senderLabel(sender: string): string {

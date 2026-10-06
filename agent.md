@@ -65,6 +65,7 @@ src/
 │  │  ├─ rendered-email.ts  # HTML→teks untuk public API read_email
 │  │  ├─ telegram.ts        # bot Telegram (1520 baris): webhook, perintah, notifikasi, MarkdownV2
 │  │  └─ services/          # users.service.ts, dashboard.service.ts, worker-settings.service.ts
+│  ├─ format.ts            # formatMailTime (keterangan waktu daftar email)
 │  ├─ stores/               # toast.store, confirm.store, ui.store (tema + sidebar)
 │  └─ types/dto.ts          # UserDto, EmailDto, EmailDetailDto, DashboardDto, WorkerSettingsDto
 └─ routes/                  # halaman + /api/*
@@ -220,6 +221,7 @@ Program meniru **Gmail web** (desktop & mobile). Aturan yang mengikat:
 - **Top bar** putih ~64px: hamburger → logo, search pill (`border-radius:24px`), kanan avatar + menu (email + Keluar). Sticky.
 - **Sidebar** ~240–256px; item aktif pil biru muda; collapse jadi ikon saja (desktop) / drawer + scrim (mobile, 280px, easing ~180ms, auto-close saat pilih menu).
 - **Daftar email**: baris = checkbox → bintang → pengirim → subjek (bold bila belum dibaca) + snippet abu → waktu. Belum dibaca = **bold** (bukan ganti warna latar); baris terpilih/hover = biru sangat muda `#eef4fd`. Container kartu putih radius ~16px, margin ~16px.
+- **Format waktu daftar email** WAJIB memakai `formatMailTime()` dari `$lib/format.ts` (jangan duplikasi): beda hari → tanggal (`6 Okt`, +tahun bila beda tahun); hari yang sama → `<1 menit` `baru saja`, `<1 jam` `N menit yg lalu`, `>=1 jam` jam `HH.MM` (24 jam, mis. `16.30`). Daftar email memiliki `setInterval` 30 detik untuk menyegarkan label relatif.
 - **Detail email**: toolbar ikon (kembali/sampah/pulihkan, tandai belum dibaca, bintang) — bukan tombol besar; subjek besar ringan; baris pengirim (avatar, nama, `kepada ...`, tanggal); body HTML di **iframe aman** (`EmailBodyViewer`, `sandbox="allow-same-origin"`).
 - **Bintang**: SVG custom. Off = outline abu (`--gm-star-off`, hover `--gm-star-hover`); On = fill + border biru (`--gm-blue` = `#1a73e8`). Email berbintang tetap ada di Kotak Masuk **dan** Berbintang.
 - **Tema**: token `--gm-*` di `app.css` (light + `[data-theme='dark']`). Admin punya toggle terang/gelap (`theme_admin`); **member selalu terang**. Anti-FOUC di `app.html`.

@@ -141,5 +141,11 @@ Permintaan & implementasi:
 - Komponen `UserListPanel.svelte`: state `bulkLabelModalOpen`, `bulkLabelSelection`, fungsi `openBulkLabelModal`/`toggleBulkLabelSelection`/`handleBulkAddLabels`; Escape & reset menutup modal.
 - Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **44/44**, `npm run build` sukses.
 
+### 2026-10-07 — Sesi 7 (format keterangan waktu daftar email)
+- **Format waktu** pada daftar email (member & admin `/users/emails`): hari sama → `<1 menit` **baru saja**, `<1 jam` **N menit yg lalu** (1..59), `>=1 jam` jam 24-jam **HH.MM** (mis. `16.30`); beda hari → **tanggal** (`6 Okt`, +tahun bila beda tahun).
+- Util baru **`src/lib/format.ts`** (`formatMailTime`) menggantikan duplikasi `timeLabel` di `GmailInbox.svelte` & `/users/emails/+page.svelte`; daftar email punya `setInterval` 30 detik agar label relatif segar.
+- Tes unit baru `src/lib/format.test.ts` (7 kasus).
+- Verifikasi: `npm run check` **0 error / 0 warning**, `npm test` **51/51**, `npm run build` sukses.
+
 ### <tambahkan sesi berikutnya di sini>
 - …
